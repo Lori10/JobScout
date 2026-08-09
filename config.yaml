@@ -1,0 +1,217 @@
+# JobScout tuning config. All phrase matching is case-insensitive and
+# punctuation-tolerant (see jobscout.filters.normalize_text). Edit freely —
+# pipeline.py reloads this on every run.
+
+sources:
+  remoteok: true
+  remotive: true
+  hn_whoishiring: true
+
+# "heuristic" is the only mode Phase 1 implements. "ai" is reserved for
+# Phase 3; if set before Phase 3 lands, pipeline.py logs a warning and
+# falls back to heuristic rather than crashing.
+ranking_mode: heuristic
+
+# Jobs scoring below this still get stored (never silently dropped), but
+# are excluded from the CLI top-20 view. report.html always shows everything.
+min_score_threshold: 30
+
+filters:
+  # Stage 1 hard-exclude phrases: country/citizenship, visa/relocation,
+  # clearance, and specific US-Pacific-timezone-only requirements.
+  # Deliberately does NOT include generic "EST"/"overlap" phrases so that
+  # "some overlap with EST hours" is never excluded (3-4h EST overlap from
+  # Albania is workable). "no C2C" alone is intentionally omitted — it's a
+  # US-contracting-structure term, not itself an Albania-eligibility signal;
+  # see README known limitations.
+  exclude_phrases:
+    - "us only"
+    - "u.s. only"
+    - "usa only"
+    - "us citizens"
+    - "us citizens only"
+    - "must be a us citizen"
+    - "us-based"
+    - "us based only"
+    - "must be located in the us"
+    - "must be located in the united states"
+    - "must be located in the uk"
+    - "must be located in canada"
+    - "must reside in the us"
+    - "green card"
+    - "w2 only"
+    - "w-2 only"
+    - "w2 employees only"
+    - "authorized to work in the us"
+    - "must be authorized to work in the united states"
+    - "visa sponsorship required"
+    - "no visa sponsorship"
+    - "unable to sponsor"
+    - "must relocate"
+    - "relocation required"
+    - "security clearance"
+    - "active clearance required"
+    - "must have active clearance"
+    - "top secret clearance"
+    - "must work pst hours"
+    - "must work pacific hours"
+    - "pacific time zone required"
+    - "overlap with us pacific business hours required"
+    - "core hours pst"
+    - "north america only"
+    - "must be based in north america"
+    - "us or canada only"
+    - "us/canada only"
+    - "canada only"
+    - "americas only"
+    # German equivalents
+    - "nur mit wohnsitz in deutschland"
+    - "nur aus deutschland"
+    - "nur in deutschland"
+    - "wohnsitz in deutschland erforderlich"
+
+  # Hybrid/onsite phrases only exclude when NO remote-indicator phrase is
+  # also present anywhere in the same posting.
+  hybrid_onsite_phrases:
+    - "hybrid"
+    - "onsite"
+    - "on-site"
+    - "in-office"
+    - "vor ort"
+
+  remote_indicator_phrases:
+    - "remote"
+    - "fully remote"
+    - "remote-first"
+    - "remote-friendly"
+    - "work from home"
+    - "remote möglich"
+    - "homeoffice"
+    - "home office"
+
+  # Stage 1 needs_review phrases: never auto-excluded, Albania's status is
+  # ambiguous (in Europe/CET, not in the EU).
+  needs_review_phrases:
+    - "eu only"
+    - "europe only"
+    - "emea"
+    - "european timezones"
+    - "european timezone required"
+    - "eu work authorization"
+    - "eu work permit"
+    - "must be eligible to work in the eu"
+    - "nur europa"
+    - "nur eu"
+
+  # Positive signals: boost ranking, never cause exclusion.
+  positive_phrases:
+    - "worldwide"
+    - "anywhere"
+    - "fully remote"
+    - "async"
+    - "asynchronous"
+    - "contractor"
+    - "b2b"
+    - "freelance"
+    - "freelancer"
+    - "invoice"
+    - "eor"
+    - "we hire globally"
+    - "hire globally"
+    - "cet"
+    - "cet timezone"
+    - "european timezone friendly"
+    - "any timezone"
+    - "freiberufler"
+    - "werkvertrag"
+    - "remote möglich"
+    - "contract for work"
+
+  # Stage 2 keyword relevance pre-filter. Non-matching jobs are stored in
+  # the "irrelevant" state (is_relevant=False), never ranked/shown prominently.
+  relevance_keywords:
+    - "ai"
+    - "artificial intelligence"
+    - "llm"
+    - "large language model"
+    - "machine learning"
+    - "ml"
+    - "genai"
+    - "generative ai"
+    - "rag"
+    - "retrieval augmented"
+    - "nlp"
+    - "natural language processing"
+    - "prompt"
+    - "langchain"
+    - "pytorch"
+    - "tensorflow"
+    - "data scientist"
+    - "data science"
+    - "python engineer"
+    - "python developer"
+    - "transformer"
+    - "chatbot"
+    - "computer vision"
+    - "deep learning"
+    - "neural network"
+
+ranker:
+  # Keyword groups scored with weights; LLM/RAG-specific phrases worth more
+  # than generic ML terms, which are worth more than generic Python/tooling.
+  keyword_groups:
+    llm_rag_genai:
+      weight: 3.0
+      phrases:
+        - "llm"
+        - "large language model"
+        - "rag"
+        - "retrieval augmented"
+        - "genai"
+        - "generative ai"
+        - "langchain"
+        - "prompt engineering"
+        - "vector database"
+        - "embeddings"
+        - "semantic search"
+        - "vllm"
+        - "tgi"
+        - "llama.cpp"
+        - "ai agent"
+        - "multi-agent"
+        - "function calling"
+        - "tool use"
+    ml_nlp_core:
+      weight: 2.0
+      phrases:
+        - "machine learning"
+        - "nlp"
+        - "natural language processing"
+        - "pytorch"
+        - "tensorflow"
+        - "transformers"
+        - "hugging face"
+        - "spacy"
+        - "scikit-learn"
+        - "computer vision"
+        - "deep learning"
+        - "neural network"
+    python_generic:
+      weight: 1.0
+      phrases:
+        - "python"
+        - "fastapi"
+        - "docker"
+        - "sql"
+        - "aws"
+        - "git"
+
+  # Points available: title_match_bonus + positive_signal_bonus_cap +
+  # recency_bonus_max, plus the weighted keyword-group sum, are combined
+  # then normalized to 0-100 — see ranker.py for the exact formula.
+  title_match_bonus: 15
+  positive_signal_bonus_cap: 15
+  recency_bonus_max: 10
+  # Penalty applied per near-miss (needs_review) signal on an otherwise
+  # eligible/scored job, tracked in red_flags for transparency.
+  near_miss_penalty: 10

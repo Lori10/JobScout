@@ -1,0 +1,73 @@
+# JobScout user profile — edit freely, the pipeline reloads this on every run.
+
+role_targets:
+  - "AI Engineer"
+  - "LLM Engineer"
+  - "Machine Learning Engineer"
+  - "GenAI Engineer"
+  - "RAG Engineer"
+  - "Search Engineer"
+  - "NLP Engineer"
+  - "AI Consultant"
+  - "Python Backend"
+
+# Used by ranker.py for skill_match %. Keep phrases short/lowercase-matchable;
+# matching is case-insensitive substring matching (see filters.normalize_text).
+core_skills:
+  - "RAG"
+  - "LangChain"
+  - "Hugging Face"
+  - "Transformers"
+  - "AI agents"
+  - "ReAct"
+  - "tool use"
+  - "function calling"
+  - "multi-agent"
+  - "prompt engineering"
+  - "LLM evaluation"
+  - "vLLM"
+  - "TGI"
+  - "llama.cpp"
+  - "Docker"
+  - "FastAPI"
+  - "PyTorch"
+  - "TensorFlow"
+  - "scikit-learn"
+  - "spaCy"
+  - "Milvus"
+  - "pgvector"
+  - "vector database"
+  - "embeddings"
+  - "semantic search"
+  - "Tesseract"
+  - "OCR"
+  - "Python"
+  - "SQL"
+  - "JavaScript"
+  - "React"
+  - "Git"
+  - "AWS"
+
+experience:
+  years: 4
+  founder_of: "SmartSearchAI (AI consultancy)"
+  previous_roles:
+    - "AI/LLM Engineer, Innomatik AG"
+    - "AI/LLM Engineer, Merck KGaA (Germany)"
+  education: "MSc Data Science (Germany)"
+
+languages:
+  - "English (fluent)"
+  - "German (fluent)"
+
+work_setup:
+  preferred: "B2B contract via own registered Albanian company"
+  acceptable:
+    - "Remote employment where employer hires internationally (EOR/contractor-friendly)"
+    - "Freelance projects"
+    - "Part-time contracts"
+
+location:
+  city: "Tirana"
+  country: "Albania"
+  timezone: "CET/CEST"
