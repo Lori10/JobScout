@@ -14,10 +14,28 @@ from jobscout.filters import find_phrase_matches, job_relevance_text, normalize_
 from jobscout.models import ContractTypeGuess, EligibilityBucket, Job, RankingSource
 
 # Rule-based, fixed-priority keyword scan for contract_type_guess. B2B is
-# checked first so "B2B contract" resolves to B2B, not FREELANCE.
+# checked first so "B2B contract" resolves to B2B, not FREELANCE; FREELANCE
+# before EMPLOYMENT so "contractor, full-time hours" resolves to FREELANCE
+# rather than the much weaker generic "full-time" employment signal.
+#
+# "contractor"/"full time" alone (not just the longer compound phrases) are
+# included deliberately: real postings almost never write the redundant
+# "full-time employment" or "contract position" — they just say "Full-time"
+# or "Contractor" — and requiring the longer phrase meant this guess was
+# "unclear" for the vast majority of real postings (found via live audit:
+# 25/26 ranked jobs were "unclear", several with "contractor"/"full-time"
+# right there in the text that the old phrase list never matched).
 _B2B_PHRASES = ["b2b", "invoice", "registered company", "own company", "corp to corp", "c2c"]
-_FREELANCE_PHRASES = ["freelance", "freelancer", "1099", "contract role", "contract position", "freiberufler"]
-_EMPLOYMENT_PHRASES = ["full-time employment", "permanent position", "full time employee", "permanent role"]
+_FREELANCE_PHRASES = [
+    "freelance",
+    "freelancer",
+    "1099",
+    "contractor",
+    "contract role",
+    "contract position",
+    "freiberufler",
+]
+_EMPLOYMENT_PHRASES = ["full-time employment", "permanent position", "full time employee", "permanent role", "full time"]
 
 _ELIGIBILITY_CONFIDENCE_BY_BUCKET = {
     EligibilityBucket.ELIGIBLE: 100,

@@ -24,6 +24,32 @@ _SEPARATOR_RE = re.compile(r"[-_/]")
 _PUNCT_RE = re.compile(r"[^\w\s]", re.UNICODE)
 _WS_RE = re.compile(r"\s+")
 
+# Checked against a fixed window of words immediately preceding a phrase
+# match (real case: "This role does NOT have an in-office requirement" —
+# a plain substring match on "in-office" wrongly excluded a remote-friendly
+# job). Apostrophes are stripped entirely by normalize_text (same rule as
+# "U.S." -> "us"), so contracted forms appear here without one.
+_NEGATION_WORDS = {
+    "not",
+    "no",
+    "never",
+    "without",
+    "non",
+    "dont",
+    "doesnt",
+    "didnt",
+    "isnt",
+    "arent",
+    "wasnt",
+    "werent",
+    "wont",
+    "cant",
+    "cannot",
+    "shouldnt",
+    "neednt",
+}
+_NEGATION_WINDOW_WORDS = 5
+
 
 def normalize_text(text: str) -> str:
     if not text:
@@ -34,19 +60,30 @@ def normalize_text(text: str) -> str:
     return _WS_RE.sub(" ", no_punct).strip()
 
 
+def _is_negated(text_norm: str, match_start: int) -> bool:
+    preceding_words = text_norm[:match_start].split()
+    window = preceding_words[-_NEGATION_WINDOW_WORDS:]
+    return any(w in _NEGATION_WORDS for w in window)
+
+
 def find_phrase_matches(text_norm: str, phrases: list[str]) -> list[str]:
     """Return the subset of `phrases` found as whole-word(s) matches in
     already-normalized `text_norm`. Matching is substring-anywhere but
     boundary-anchored, so short phrases like "ai" or "ml" don't fire inside
-    unrelated words like "chain" or "html"."""
+    unrelated words like "chain" or "html". A phrase counts only if at
+    least one occurrence isn't immediately preceded by a negation word —
+    a phrase appearing multiple times, negated in one place and not
+    another, still counts."""
     matches = []
     for phrase in phrases:
         phrase_norm = normalize_text(phrase)
         if not phrase_norm:
             continue
         pattern = r"\b" + re.escape(phrase_norm) + r"\b"
-        if re.search(pattern, text_norm):
-            matches.append(phrase)
+        for m in re.finditer(pattern, text_norm):
+            if not _is_negated(text_norm, m.start()):
+                matches.append(phrase)
+                break
     return matches
 
 

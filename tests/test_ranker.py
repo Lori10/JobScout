@@ -120,6 +120,31 @@ def test_b2b_wins_over_freelance_when_both_present():
     assert guess_contract_type(text) == ContractTypeGuess.B2B
 
 
+def test_bare_contractor_alone_guesses_freelance():
+    # Real gap found via live audit: real postings say "Contractor", not
+    # the longer "contract role"/"contract position" the old list required.
+    from jobscout.filters import normalize_text
+
+    text = normalize_text("Looking for a contractor to join the team, remote friendly.")
+    assert guess_contract_type(text) == ContractTypeGuess.FREELANCE
+
+
+def test_bare_full_time_alone_guesses_employment():
+    # Real gap: postings almost always say bare "Full-time"/"Full Time",
+    # not the redundant "full-time employment" the old list required.
+    from jobscout.filters import normalize_text
+
+    text = normalize_text("This is a Full-time role based remotely.")
+    assert guess_contract_type(text) == ContractTypeGuess.EMPLOYMENT
+
+
+def test_contractor_wins_over_full_time_when_both_present():
+    from jobscout.filters import normalize_text
+
+    text = normalize_text("Contractor position, full-time hours expected.")
+    assert guess_contract_type(text) == ContractTypeGuess.FREELANCE
+
+
 def test_ranking_source_is_always_heuristic(ranker_config, filter_config, profile):
     job = make_job(description="Python role.")
     result = score_job(job, ranker_config, filter_config, profile)

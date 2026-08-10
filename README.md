@@ -94,7 +94,12 @@ All phrase matching is case-insensitive, punctuation-tolerant, and
 word-boundary-anchored (so `"US CITIZENS ONLY"`, `"U.S. Citizens Only"`,
 and `"us-citizens-only"` all match a configured `"us citizens only"`
 phrase, but short keywords like `"ai"` or `"ml"` never fire inside
-unrelated words like `"certain"` or `"html"`).
+unrelated words like `"certain"` or `"html"`). It's also negation-aware
+within a 5-word window: `"This role does NOT have an in-office
+requirement"` does not trigger the `"in-office"` exclude phrase (found via
+live audit — a real remote-friendly posting was wrongly excluded this
+way). A phrase mentioned twice, negated once and not the other time,
+still counts as a match.
 
 ## Known limitations per source
 

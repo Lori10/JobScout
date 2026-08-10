@@ -22,12 +22,14 @@ def filter_config() -> FilterConfig:
             "w-2 only",
             "authorized to work in the us",
             "visa sponsorship required",
+            "not sponsoring visas",
+            "not sponsoring visa",
             "must relocate",
             "security clearance",
             "must work pst hours",
             "must work pacific hours",
         ],
-        hybrid_onsite_phrases=["hybrid", "onsite", "on-site"],
+        hybrid_onsite_phrases=["hybrid", "onsite", "on-site", "in-office"],
         remote_indicator_phrases=["remote", "fully remote", "work from home"],
         needs_review_phrases=["eu only", "europe only", "emea", "european timezones", "eu work authorization"],
         positive_phrases=["worldwide", "anywhere", "b2b", "freelance"],
@@ -79,6 +81,46 @@ def test_est_overlap_4h_eligible_not_excluded(filter_config):
     job = make_job(description="Looking for some overlap with EST, about 4 hours a day is fine.")
     result = apply_eligibility_filter(job, filter_config)
     assert result.eligibility_bucket == EligibilityBucket.ELIGIBLE
+
+
+def test_negated_in_office_phrase_not_excluded(filter_config):
+    # Real case: "This role does NOT have an in-office requirement" was
+    # excluded by a plain substring match on "in-office", ignoring the
+    # negation right before it.
+    job = make_job(
+        description=(
+            "We may consider candidates outside Arizona. "
+            "This role does not have an in-office requirement but would need to come in occasionally."
+        )
+    )
+    result = apply_eligibility_filter(job, filter_config)
+    assert result.eligibility_bucket == EligibilityBucket.ELIGIBLE
+
+
+def test_not_sponsoring_visas_phrasing_excluded(filter_config):
+    # Real case found alongside the negation bug above: this exact
+    # phrasing ("not sponsoring visas" rather than "no visa sponsorship")
+    # was missing from the exclude list entirely.
+    job = make_job(description="Great team, fully remote. We are not sponsoring visas at this time.")
+    result = apply_eligibility_filter(job, filter_config)
+    assert result.eligibility_bucket == EligibilityBucket.EXCLUDED
+    assert "sponsoring visas" in result.eligibility_reason
+
+
+def test_negation_does_not_suppress_a_non_negated_occurrence_elsewhere():
+    # A phrase mentioned twice, negated once and not the other time, must
+    # still count - negation only suppresses that specific occurrence.
+    text = normalize_text("This is not onsite work, it's fully remote. We do have an onsite office in Berlin too.")
+    hits = find_phrase_matches(text, ["onsite"])
+    assert hits == ["onsite"]
+
+
+def test_negation_word_itself_does_not_block_phrases_that_start_with_it():
+    # "no visa sponsorship" legitimately starts with a negation word - the
+    # negation check looks at words BEFORE the match, not the match itself.
+    text = normalize_text("Please note: no visa sponsorship is available for this role.")
+    hits = find_phrase_matches(text, ["no visa sponsorship"])
+    assert hits == ["no visa sponsorship"]
 
 
 def test_pst_hours_required_excluded(filter_config):
