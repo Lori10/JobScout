@@ -80,7 +80,12 @@ created automatically.)
   phrase list used by the eligibility filter (`exclude_phrases`,
   `hybrid_onsite_phrases`, `remote_indicator_phrases`,
   `needs_review_phrases`, `positive_phrases`), the keyword relevance
-  pre-filter list, and the ranker's weighted `keyword_groups` + bonus caps.
+  pre-filter list (`relevance_keywords`), a title-based veto list
+  (`non_role_title_phrases` — sales/marketing/design/recruiting/etc. job
+  titles are marked irrelevant regardless of AI keyword hits elsewhere,
+  since company/product boilerplate often mentions "AI" even when hiring
+  for an unrelated function), and the ranker's weighted `keyword_groups` +
+  bonus caps.
 
 All phrase matching is case-insensitive, punctuation-tolerant, and
 word-boundary-anchored (so `"US CITIZENS ONLY"`, `"U.S. Citizens Only"`,

@@ -156,6 +156,54 @@ filters:
     - "deep learning"
     - "neural network"
 
+  # Title-based veto on Stage 2: if the job TITLE clearly names a
+  # non-engineering function, it's marked irrelevant regardless of any
+  # relevance_keywords hit elsewhere in the text. This exists because
+  # company/product boilerplate frequently mentions "AI" even when hiring
+  # for sales, marketing, design, support, etc. — a bare "ai" match in a
+  # sentence like "Lite Agent is a privacy-first AI browser copilot" says
+  # nothing about the ROLE, only about the product. Title is a far more
+  # reliable role-function signal than incidental keyword hits in
+  # generic company/marketplace boilerplate.
+  non_role_title_phrases:
+    - "sales"
+    - "account executive"
+    - "account manager"
+    - "business development"
+    - "affiliate"
+    - "marketing"
+    - "growth marketer"
+    - "recruiter"
+    - "recruiting"
+    - "talent acquisition"
+    - "human resources"
+    - "hr generalist"
+    - "hr manager"
+    - "customer success"
+    - "customer support"
+    - "support specialist"
+    - "support agent"
+    - "community manager"
+    - "social media manager"
+    - "content writer"
+    - "copywriter"
+    - "graphic designer"
+    - "ui designer"
+    - "ux designer"
+    - "product designer"
+    - "office manager"
+    - "executive assistant"
+    - "bookkeeper"
+    - "accountant"
+    - "paralegal"
+    - "receptionist"
+    - "head of growth"
+    - "growth lead"
+    - "ceo"
+    - "chief executive officer"
+    - "chief revenue officer"
+    - "chief marketing officer"
+
 ranker:
   # Keyword groups scored with weights; LLM/RAG-specific phrases worth more
   # than generic ML terms, which are worth more than generic Python/tooling.

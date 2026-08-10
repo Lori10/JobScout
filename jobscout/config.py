@@ -22,6 +22,7 @@ class FilterConfig:
     needs_review_phrases: list[str] = field(default_factory=list)
     positive_phrases: list[str] = field(default_factory=list)
     relevance_keywords: list[str] = field(default_factory=list)
+    non_role_title_phrases: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -79,6 +80,7 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
             needs_review_phrases=list(filters_raw.get("needs_review_phrases", [])),
             positive_phrases=list(filters_raw.get("positive_phrases", [])),
             relevance_keywords=list(filters_raw.get("relevance_keywords", [])),
+            non_role_title_phrases=list(filters_raw.get("non_role_title_phrases", [])),
         ),
         ranker=RankerConfig(
             keyword_groups=keyword_groups,

@@ -32,6 +32,15 @@ def filter_config() -> FilterConfig:
         needs_review_phrases=["eu only", "europe only", "emea", "european timezones", "eu work authorization"],
         positive_phrases=["worldwide", "anywhere", "b2b", "freelance"],
         relevance_keywords=["ai", "llm", "machine learning", "rag", "nlp", "langchain", "pytorch", "data scientist"],
+        non_role_title_phrases=[
+            "sales",
+            "marketing",
+            "graphic designer",
+            "recruiter",
+            "customer support",
+            "head of growth",
+            "ceo",
+        ],
     )
 
 
@@ -170,3 +179,47 @@ def test_keyword_relevance_independent_of_eligibility(filter_config):
     relevance = apply_keyword_relevance_filter(elig, filter_config)
     assert relevance.eligibility_bucket == EligibilityBucket.EXCLUDED
     assert relevance.is_relevant is True
+
+
+def test_non_engineering_title_vetoes_relevance_despite_ai_keyword_in_description(filter_config):
+    # Real case: company's product is "AI", but the ROLE is a commission-based
+    # sales/affiliate gig - the bare "ai" keyword match must not override that.
+    job = make_job(
+        title="Hiring Sales Agent",
+        description="Our product is a privacy-first AI browser copilot. Earn $5 per referral.",
+    )
+    result = apply_keyword_relevance_filter(job, filter_config)
+    assert result.is_relevant is False
+
+
+def test_non_engineering_title_vetoes_relevance_despite_marketplace_boilerplate(filter_config):
+    # Real case: a design role on a marketplace whose generic template text
+    # mentions engineers/AI projects elsewhere on the platform.
+    job = make_job(
+        title="Senior Graphic Designer",
+        description="Join our marketplace of hand-picked startups building AI and machine learning products.",
+    )
+    result = apply_keyword_relevance_filter(job, filter_config)
+    assert result.is_relevant is False
+
+
+def test_head_of_growth_and_ceo_roles_vetoed(filter_config):
+    job = make_job(
+        title="Head of Growth and CEO roles",
+        description="Venture studio hiring commercial leaders to own the business side of AI-powered SaaS.",
+    )
+    result = apply_keyword_relevance_filter(job, filter_config)
+    assert result.is_relevant is False
+
+
+def test_engineering_title_not_affected_by_non_role_phrases_elsewhere():
+    config = FilterConfig(
+        relevance_keywords=["llm", "rag"],
+        non_role_title_phrases=["sales", "marketing"],
+    )
+    job = make_job(
+        title="LLM Engineer",
+        description="Work closely with our sales and marketing teams to build RAG-powered LLM tools.",
+    )
+    result = apply_keyword_relevance_filter(job, config)
+    assert result.is_relevant is True

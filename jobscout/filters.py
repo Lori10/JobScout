@@ -95,7 +95,20 @@ def apply_eligibility_filter(job: Job, config: FilterConfig) -> Job:
 
 def apply_keyword_relevance_filter(job: Job, config: FilterConfig) -> Job:
     """Stage 2: independent of eligibility_bucket — an excluded job can
-    also be irrelevant, and vice versa."""
+    also be irrelevant, and vice versa.
+
+    Title is checked first and, if it names a non-engineering function
+    (sales, marketing, design, support, ...), wins outright: company or
+    product boilerplate frequently mentions "AI" even when hiring for an
+    unrelated role (e.g. "Lite Agent is a privacy-first AI browser
+    copilot" hiring a commission-based sales affiliate), so a bare
+    keyword hit elsewhere in the text is a much weaker signal than what
+    the title itself says the role is.
+    """
+    title_norm = normalize_text(job.title)
+    if find_phrase_matches(title_norm, config.non_role_title_phrases):
+        return replace(job, is_relevant=False)
+
     text_norm = job_relevance_text(job)
     hits = find_phrase_matches(text_norm, config.relevance_keywords)
     return replace(job, is_relevant=bool(hits))
