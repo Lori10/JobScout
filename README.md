@@ -115,6 +115,27 @@ unrelated words like `"certain"` or `"html"`).
   like `"Willing to relocate:"` or `"Résumé/CV:"`) are detected and
   skipped entirely rather than surfaced as fake jobs, since people
   occasionally cross-post those into the hiring thread.
+- **Bundled multi-role HN comments can be wrongly marked irrelevant** — a
+  single comment sometimes advertises many distinct roles at once (e.g.
+  `"Multiple positions in United States - WORK FROM HOME"` followed by a
+  list of 9 role names and separate application links per role). The
+  relevance filter judges the *whole comment's text* as one unit; if none
+  of the listed role names happen to contain a configured AI/LLM keyword
+  (even if one of the roles individually would be relevant — e.g. a
+  "Staff Product Manager, Agent Platform" role at a company that is
+  otherwise a good fit), the entire bundle is marked `irrelevant`, hiding
+  it from the ranked view even though the linked careers page may have
+  additional or more clearly AI-relevant listings. This is a structural
+  limitation of "one HN comment = one Job record, text-only relevance" —
+  not a simple keyword-list gap (loosening the keyword list to catch
+  generic terms like bare `"agent"` would introduce far more false
+  positives than it fixes, since that word is common in unrelated
+  contexts like sales/support/real-estate). A real fix would mean
+  fetching each individually linked role (several of these are Greenhouse
+  ATS links, which has a public per-company JSON API and wouldn't count
+  as HTML scraping) and creating one `Job` per linked role instead of one
+  per HN comment — not implemented yet; see [PLAN.md](PLAN.md) for
+  whether/when this lands.
 - **All sources** — the eligibility filter works by matching curated
   phrases (see `config.yaml`), not by NLP/entity extraction. It reliably
   catches explicit statements like `"US citizens only"` or `"visa

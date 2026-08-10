@@ -49,6 +49,16 @@ changes to `pipeline.py`: We Work Remotely (RSS), Jobicy (API), Arbeitnow
 language positive-signal phrases already in `config.yaml` start mattering
 most, since Phase 1's three sources are almost entirely English-language.
 
+Also in scope for this phase: expanding bundled multi-role HN "Who is
+hiring" comments (one comment advertising several distinct roles, each
+with its own application link — see README known limitations) into one
+`Job` per linked role where the link is a known ATS with a public API
+(e.g. Greenhouse's per-company job board API), instead of treating the
+whole bundle as a single Job whose relevance is judged on the comment's
+aggregate text. This is source-fetching work, so it fits naturally
+alongside the new fetchers above, even though it improves an existing
+source (HN) rather than adding a new one.
+
 ## Phase 5 (later) — Research briefs and outreach drafting
 
 For jobs marked `interested` in the dashboard, fetch public company info
