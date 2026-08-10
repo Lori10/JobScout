@@ -30,7 +30,14 @@ def effective_bucket(job: Job) -> str:
     return job.eligibility_bucket.value
 
 
-def print_summary(total_fetched: int, deduped_count: int, jobs: list[Job], report_path: str, top_n: int = 20) -> None:
+def print_summary(
+    total_fetched: int,
+    deduped_count: int,
+    jobs: list[Job],
+    report_path: str,
+    top_n: int = 20,
+    min_score_threshold: int = 0,
+) -> None:
     bucket_counts: dict[str, int] = {}
     for job in jobs:
         bucket = effective_bucket(job)
@@ -41,13 +48,17 @@ def print_summary(total_fetched: int, deduped_count: int, jobs: list[Job], repor
     print("  ".join(f"{bucket}: {bucket_counts.get(bucket, 0)}" for bucket in _BUCKET_ORDER))
     print()
 
-    rankable = [j for j in jobs if effective_bucket(j) in ("eligible", "needs_review")]
+    rankable = [
+        j
+        for j in jobs
+        if effective_bucket(j) in ("eligible", "needs_review") and (j.score or 0) >= min_score_threshold
+    ]
     top_jobs = sorted(rankable, key=lambda j: j.score or 0, reverse=True)[:top_n]
 
     if not top_jobs:
-        print("No eligible/needs_review jobs to show.")
+        print(f"No eligible/needs_review jobs scoring >= {min_score_threshold} to show.")
     else:
-        print(f"Top {len(top_jobs)} by score:")
+        print(f"Top {len(top_jobs)} by score (min_score_threshold={min_score_threshold}):")
         _print_table(top_jobs)
 
     print()

@@ -158,6 +158,21 @@ def test_needs_review_bucket_lowers_eligibility_confidence(ranker_config, filter
     assert any("needs_review" in flag for flag in result.red_flags)
 
 
+def test_needs_review_job_never_floors_to_zero_like_trivial_rank_result(ranker_config, filter_config, profile):
+    # Real case: a weak-signal needs_review job (PostHog/EMEA) had its
+    # already-low raw score pushed negative by the near-miss penalty and
+    # clamped to 0 - visually identical to an excluded/irrelevant job that
+    # was never ranked at all. A relevant needs_review job must stay
+    # distinguishable from that.
+    job = make_job(
+        title="Generic Role",
+        description="No matching keywords here at all.",
+        eligibility_bucket=EligibilityBucket.NEEDS_REVIEW,
+    )
+    result = score_job(job, ranker_config, filter_config, profile)
+    assert result.score >= 1
+
+
 def test_trivial_rank_result_for_excluded_job():
     job = make_job(eligibility_bucket=EligibilityBucket.EXCLUDED, eligibility_reason="excluded: matched ['us only']")
     result = trivial_rank_result(job)

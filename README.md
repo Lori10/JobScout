@@ -38,15 +38,23 @@ ranks, stores everything in `data/jobscout.db` (created on first run), and
 prints a summary:
 
 ```
-Fetched: 334 total | Stored after dedupe: 303
-eligible: 74  needs_review: 3  excluded: 60  irrelevant: 166
+Fetched: 330 total | Stored after dedupe: 299
+eligible: 25  needs_review: 1  excluded: 31  irrelevant: 242
 
-Top 20 by score:
+Top 13 by score (min_score_threshold=30):
 SCORE  BUCKET    SOURCE          TITLE                          COMPANY   CONTRACT
 ...
 
 Full report: file:///home/lori28/JobScout/report.html
 ```
+
+The CLI table only shows jobs scoring at or above `min_score_threshold`
+(so the "Top N" list stays a `min(top_n, jobs above threshold)` count, not
+always a full 20) — `report.html` always shows every stored job regardless
+of score. A `needs_review` job that's genuinely relevant always scores at
+least 1, even if its raw signal is weak, so it never looks identical in a
+sorted view to an excluded/irrelevant job that was never ranked at all
+(those always score exactly 0).
 
 Open `report.html` in a browser for the full sorted table — **every**
 stored job appears there, including `excluded` and `irrelevant` ones (with

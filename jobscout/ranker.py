@@ -134,6 +134,15 @@ def score_job(job: Job, ranker_config: RankerConfig, filter_config: FilterConfig
     raw = keyword_score + title_bonus + positive_bonus + recency_bonus - penalty
     score = round((raw / max_possible) * 100) if max_possible else 0
     score = max(0, min(100, score))
+    if job.eligibility_bucket == EligibilityBucket.NEEDS_REVIEW:
+        # A relevant needs_review job must never look identical to an
+        # excluded/irrelevant one (trivial_rank_result always gives those
+        # score=0) - otherwise the one bucket that's supposed to stay
+        # visible for manual review sinks to the bottom indistinguishably
+        # from jobs that were never ranked at all (found via live audit:
+        # a real PostHog/EMEA posting scored exactly 0 after the near-miss
+        # penalty pushed its already-weak raw score negative).
+        score = max(score, 1)
 
     skill_hits = find_phrase_matches(text_norm, profile.core_skills)
     skill_match = round(100 * len(skill_hits) / len(profile.core_skills)) if profile.core_skills else 0

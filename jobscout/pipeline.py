@@ -82,5 +82,5 @@ def run(
         upsert_job(conn, job)
 
     stored = get_jobs(conn, order_by="score DESC")
-    print_summary(total_fetched, len(deduped), stored, report_path)
+    print_summary(total_fetched, len(deduped), stored, report_path, min_score_threshold=config.min_score_threshold)
     render_html_report(stored, report_path)
