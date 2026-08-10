@@ -40,6 +40,15 @@ per-job "re-rank" action overwrites the AI fields while leaving
 `ranking_source` accurate so the dashboard can show which scorer produced
 a given result.
 
+Also worth scoping in here: a lightweight "is this actually a job
+posting?" sanity check. Phase 1's phrase/structure heuristics (e.g.
+RemoteOK's `full time`+`part time` tag contradiction) catch specific,
+well-evidenced spam patterns one at a time, but RemoteOK's free API has
+an ongoing, broader spam problem (product-launch announcements, duplicate
+listings reusing identical marketing copy under fake "job titles," scraped
+error pages) that a growing whack-a-mole list of rules won't fully solve.
+An LLM classification pass generalizes far better here than more rules.
+
 ## Phase 4 (later) — More sources
 
 Additional fetchers dropped into the existing `fetchers/` registry with no

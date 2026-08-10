@@ -105,7 +105,22 @@ unrelated words like `"certain"` or `"html"`).
   the generic `/remote-jobs` listings page rather than a specific job
   permalink. Garbled characters occasionally appearing in a title
   (mis-encoded emoji) are pre-existing corruption in RemoteOK's own
-  stored data, not something introduced by this fetcher.
+  stored data, not something introduced by this fetcher. Also detected
+  and skipped: entries tagged with both `"full time"` and `"part time"`
+  simultaneously — no single real job is both, so this reliably flags
+  tag-stuffing spam (verified against a live snapshot: caught known junk
+  entries with zero false positives against legitimate heavily-tagged
+  posts). **This is not exhaustive** — RemoteOK's free/public API has a
+  broader, ongoing spam problem (e.g. product-launch announcements,
+  duplicate listings reusing identical marketing copy under different
+  fake "job titles," and at least one entry whose "description" was a
+  scraped HTTP error page). Each fix here targets a specific, well-
+  evidenced signal found by manually auditing live data — this is a
+  whack-a-mole problem that pure phrase/structure heuristics can't fully
+  solve, and is a natural candidate for Phase 3's AI-assisted mode (an
+  LLM sanity-check of "is this actually a job posting?" generalizes far
+  better than hand-rolled rules). Spam that slips through is still
+  visible and auditable in `report.html` like any other stored job.
 - **Remotive** — Phase 1 only polls the `software-dev` category (the URL
   the spec fixed); other categories (e.g. data/AI-specific ones, if
   Remotive ever splits them out) aren't polled yet. `salary` is free text

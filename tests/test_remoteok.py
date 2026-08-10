@@ -59,6 +59,33 @@ def test_generic_listing_url_alone_is_not_enough_to_reject():
     assert job.title == "Senior ML Engineer"
 
 
+def test_full_time_and_part_time_tags_together_is_rejected():
+    # Real case: RemoteOK tag-stuffing spam ("Stay Hungry. Stay Foolish.
+    # Serve Others" at "AS UNEXPECTED") tagged with both simultaneously,
+    # which no single real job legitimately is.
+    item = make_item(
+        position="Stay Hungry. Stay Foolish. Serve Others",
+        company="AS UNEXPECTED",
+        tags=["exec", "full time", "part time", "sys admin", "engineer", "sales"],
+    )
+    with pytest.raises(NotAJobError):
+        RemoteOKFetcher()._parse_item(item)
+
+
+def test_full_time_alone_is_not_rejected():
+    item = make_item(tags=["engineer", "full time"])
+    job = RemoteOKFetcher()._parse_item(item)
+    assert job.title == "Senior ML Engineer"
+
+
+def test_many_tags_alone_is_not_rejected():
+    # A real, heavily-tagged listing (e.g. a staffing agency posting) must
+    # not be rejected just for having a long tag list.
+    item = make_item(tags=["engineer", "backend", "senior", "python", "sql", "docker", "aws", "remote", "full time"])
+    job = RemoteOKFetcher()._parse_item(item)
+    assert job.title == "Senior ML Engineer"
+
+
 def test_fetch_skips_non_job_entries_without_raising(monkeypatch):
     good_item = make_item()
     bad_item = make_item(

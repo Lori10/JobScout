@@ -31,6 +31,13 @@ TIMEOUT = 20
 # strong indicator this isn't a real job, not just a sparse one.
 _GENERIC_LISTING_URL_RE = re.compile(r"^https?://(www\.)?remoteok\.com/remote-jobs/?$", re.IGNORECASE)
 
+# A second, independent spam signal: RemoteOK's own tag vocabulary includes
+# both "full time" and "part time" — no single real job is both, so a
+# listing tagged with both is tag-stuffing (checked live against the full
+# feed: exactly matched known junk/promo entries like "Stay Hungry. Stay
+# Foolish. Serve Others" and "No Open Roles Currently", zero false
+# positives against legitimate heavily-tagged posts).
+
 
 class NotAJobError(Exception):
     """Raised for feed entries that aren't real job postings (e.g. RemoteOK
@@ -69,13 +76,16 @@ class RemoteOKFetcher:
         ):
             raise NotAJobError("empty slug and URL points at the generic listings page, not a specific job")
 
+        tags = list(item.get("tags") or [])
+        if "full time" in tags and "part time" in tags:
+            raise NotAJobError("tagged both 'full time' and 'part time' - tag-stuffing, not a real listing")
+
         title = item["position"]
         company = item["company"]
         description = strip_html(item.get("description", ""))
         url = item.get("url") or item.get("apply_url") or ""
         posted_date = parse_iso_datetime(item.get("date"), assume_utc=True)
         salary_text = _format_salary(item.get("salary_min"), item.get("salary_max"))
-        tags = list(item.get("tags") or [])
         location_text = (item.get("location") or "").strip() or None
         source_id = str(item["id"]) if item.get("id") is not None else None
         channel = infer_application_channel(description, has_url=bool(url))
