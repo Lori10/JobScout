@@ -19,7 +19,7 @@ without rework — notably, the `Job.status` and `Job.application_channel`
 fields already exist even though Phase 1 only ever sets them to their
 defaults (`new` / best-effort inference).
 
-## Phase 2 (later) — Dashboard
+## Phase 2 (built) — Dashboard
 
 A FastAPI backend + frontend reading from the same SQLite DB: job list,
 detail view, filters by bucket/source/score, a "Fetch now" button that

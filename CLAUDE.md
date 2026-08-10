@@ -12,6 +12,14 @@ wsl.exe -d Ubuntu -- bash -lc "cd /home/lori28/JobScout && <command>"
 
 Check which shell you're in first (`uname -a` — `MINGW64_NT` means you need the wrapper; anything else, you likely don't).
 
+**Node.js lives in WSL too, but via `nvm`, not apt or the system PATH.** There is no system-wide `node`/`npm` in WSL (no passwordless `sudo`, so `apt install nodejs` isn't an option) and Windows' native npm (`C:\Program Files\nodejs`) cannot reliably run against the `\\wsl$` UNC path (hits a "Maximum call stack size exceeded" bug). Node was installed via `nvm` into `~/.nvm` instead — every command from the wrapper above needs it sourced first:
+
+```bash
+wsl.exe -d Ubuntu -- bash -lc "source \$HOME/.nvm/nvm.sh && cd /home/lori28/JobScout/frontend && <npm command>"
+```
+
+`scripts/dev.sh` already sources it automatically.
+
 ## Commands
 
 Install (bootstraps pip via stdlib `ensurepip` — `pip`/`uv` are not assumed pre-installed):
@@ -43,11 +51,26 @@ Debug why a specific job landed in a given bucket:
 .venv/bin/python -m jobscout --log-level DEBUG run
 ```
 
+Dashboard (Phase 2) — build the frontend once, then serve API + built frontend from one process:
+
+```bash
+cd frontend && npm install && npm run build
+.venv/bin/python -m jobscout serve   # http://127.0.0.1:8000
+```
+
+Dashboard dev mode (backend `--reload` + Vite hot reload together, one process group, Ctrl-C stops both):
+
+```bash
+./scripts/dev.sh   # http://localhost:5173, proxies /api to :8000
+```
+
 No linter/formatter is configured yet.
 
 ## Architecture
 
-See [README.md](README.md) for install/run/tuning details and per-source known limitations, and [PLAN.md](PLAN.md) for the 5-phase roadmap — **only Phase 1 is built**. The points below are the parts that only become clear by reading across multiple files.
+See [README.md](README.md) for install/run/tuning details and per-source known limitations, and [PLAN.md](PLAN.md) for the 5-phase roadmap — **Phases 1 and 2 are built**. The points below are the parts that only become clear by reading across multiple files.
+
+**Phase 2's dashboard (`jobscout/web/` + `frontend/`) is purely additive.** It reuses `db.py`/`pipeline.py` exactly as Phase 1 left them — `routes.py`'s `GET /api/jobs` returns every stored job unfiltered (bucket/source/status/score filtering happens client-side in React, mirroring `report.py`'s existing "dump everything, let the display layer handle it" approach) and `POST /api/fetch` just calls `pipeline.run()` synchronously. Status updates address a job by `dedup_key` in the POST body rather than a URL path segment, since `dedup_key` is a normalized URL (contains `/`, `:`) and not path-segment-safe — no `id` field was added to `Job`/`db.py` to avoid a shared-model change for a purely additive feature.
 
 **Config-driven, not code-driven.** `config.yaml` (phrase lists, weights, source toggles) and `profile.yaml` (the user's role/skill profile) are loaded fresh every run by `config.py` into typed dataclasses (`AppConfig`, `Profile`) and threaded through as plain arguments. `filters.py` and `ranker.py` never read a file themselves — this is what keeps them pure functions, testable with inline fixtures instead of fixture files, and editable by the user without touching code.
 

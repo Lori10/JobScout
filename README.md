@@ -3,16 +3,21 @@
 A job aggregation and matching system for a remote AI/LLM engineer based in
 Albania. Fetches postings from multiple sources, filters out ones that
 aren't legally/practically doable from Albania, ranks the rest against a
-hardcoded skills/experience profile, and produces a CLI summary plus a
-static HTML report. See [PLAN.md](PLAN.md) for the full 5-phase roadmap —
-**this repo currently implements Phase 1 only.**
+hardcoded skills/experience profile, and produces a CLI summary, a static
+HTML report, and a web dashboard. See [PLAN.md](PLAN.md) for the full
+5-phase roadmap — **this repo currently implements Phases 1 and 2.**
 
 ## Status
 
 Phase 1: done. Fetchers (RemoteOK, Remotive, HN "Who is hiring?"), dedupe,
 eligibility filter, keyword relevance filter, heuristic ranking, CLI +
 `report.html` output, full pytest coverage of the filter/ranker/dedupe
-logic. No dashboard, no AI ranking, no other fetchers yet.
+logic.
+
+Phase 2: done. A FastAPI + React dashboard (see below) for browsing,
+filtering, and moving jobs through their status lifecycle, plus
+triggering a fetch from the browser. No AI ranking, no other fetchers
+yet.
 
 ## Install
 
@@ -78,6 +83,51 @@ bucket:
 
 (Create a `logs/` directory first, or redirect elsewhere — it isn't
 created automatically.)
+
+## Dashboard (Phase 2)
+
+A FastAPI backend + React frontend reading from the same `data/jobscout.db`
+— job list, a detail view, filters by bucket/source/status/score, a
+"Fetch now" button that runs the same pipeline as `jobscout run`, a stats
+bar, and the ability to move a job through its `status` lifecycle (new →
+interested → applied → interview → rejected/ignored). No new fetchers or
+ranking logic — it's a read/write UI over what the pipeline already
+produces and stores.
+
+Build the frontend once (or after pulling frontend changes):
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+Then start the server, which serves both the API and the built frontend
+on one origin:
+
+```bash
+.venv/bin/python -m jobscout serve
+```
+
+Open `http://127.0.0.1:8000`. Useful flags: `--host`, `--port`,
+`--config`, `--profile`, `--db-path`, `--report-path` (all default to the
+same values `jobscout run` uses).
+
+For frontend development with hot reload, run both the backend (with
+`--reload`) and the Vite dev server together with one script:
+
+```bash
+./scripts/dev.sh
+```
+
+This starts `uvicorn jobscout.web.app:app --reload` (restarts on changes
+under `jobscout/`) and `npm run dev` (Vite, hot-reloads `.jsx`/`.css`)
+side by side, and stops both together on Ctrl-C. Open
+`http://localhost:5173` — Vite proxies `/api/*` requests to the backend
+on port 8000. (Equivalent to running `.venv/bin/python -m uvicorn
+jobscout.web.app:app --reload` and `cd frontend && npm run dev` in two
+separate terminals, if you'd rather see each process's output on its
+own.)
 
 ## Tuning
 
@@ -219,6 +269,10 @@ jobscout/
   db.py         stdlib sqlite3 storage
   pipeline.py   orchestrates fetch -> dedupe -> filter -> rank -> store -> report
   report.py     CLI table + report.html
+  web/          Phase 2 dashboard: FastAPI app (app.py), routes (routes.py),
+                Pydantic schemas (schemas.py)
+frontend/       Phase 2 dashboard: React + Vite SPA served by jobscout/web
+scripts/dev.sh  Runs the dashboard backend + frontend together for local dev
 ```
 
 ## Tests
