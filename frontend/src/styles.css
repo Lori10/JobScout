@@ -1,0 +1,181 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  background: #f6f8fa;
+  color: #1f2328;
+}
+
+.app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.stats-bar {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 1rem;
+  color: #444;
+}
+
+.stats-total {
+  font-weight: 600;
+  margin-right: 0.4rem;
+}
+
+.filters {
+  display: flex;
+  gap: 1.2rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.filters label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.75rem;
+  color: #57606a;
+  gap: 0.2rem;
+}
+
+.filters select,
+.filters input,
+.status-control select {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+table.job-list {
+  border-collapse: collapse;
+  width: 100%;
+  background: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+table.job-list th,
+table.job-list td {
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid #e1e4e8;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.85rem;
+}
+
+table.job-list th {
+  background: #eaeef2;
+}
+
+table.job-list a {
+  color: #0969da;
+  text-decoration: none;
+}
+
+table.job-list a:hover {
+  text-decoration: underline;
+}
+
+.score {
+  font-weight: 700;
+}
+
+.empty-state {
+  color: #57606a;
+}
+
+button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.error-text {
+  color: #cf222e;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 31, 36, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3rem 1rem;
+  overflow-y: auto;
+}
+
+.modal {
+  background: white;
+  border-radius: 8px;
+  padding: 1.5rem 2rem;
+  max-width: 700px;
+  width: 100%;
+  position: relative;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.modal-close {
+  position: absolute;
+  top: 0.8rem;
+  right: 0.8rem;
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+}
+
+.modal-subtitle {
+  color: #57606a;
+  margin-top: -0.5rem;
+}
+
+.modal-row {
+  margin: 0.6rem 0;
+  font-size: 0.9rem;
+}
+
+.modal-row.flags {
+  color: #cf222e;
+}
+
+.modal-row.description p {
+  white-space: pre-wrap;
+  color: #333;
+}
