@@ -80,11 +80,14 @@ created automatically.)
   phrase list used by the eligibility filter (`exclude_phrases`,
   `hybrid_onsite_phrases`, `remote_indicator_phrases`,
   `needs_review_phrases`, `positive_phrases`), the keyword relevance
-  pre-filter list (`relevance_keywords`), a title-based veto list
-  (`non_role_title_phrases` — sales/marketing/design/recruiting/etc. job
-  titles are marked irrelevant regardless of AI keyword hits elsewhere,
-  since company/product boilerplate often mentions "AI" even when hiring
-  for an unrelated function), and the ranker's weighted `keyword_groups` +
+  pre-filter (`relevance_keywords` — specific terms, a hit anywhere
+  counts; `relevance_keywords_weak` — bare `"ai"`/`"ml"`, too generic to
+  trust in the body alone, only counts when it's in the job title), a
+  title-based veto list (`non_role_title_phrases` — sales/marketing/
+  design/recruiting/etc. job titles are marked irrelevant regardless of
+  keyword hits elsewhere, since company/product boilerplate often
+  mentions "AI" even when hiring for an unrelated function), and the
+  ranker's weighted `keyword_groups` +
   bonus caps.
 
 All phrase matching is case-insensitive, punctuation-tolerant, and
@@ -135,7 +138,18 @@ unrelated words like `"certain"` or `"html"`).
   The full plain-text body is always preserved in `description`
   regardless, so eligibility/relevance filtering and ranking are
   unaffected by parsing quality — only the displayed title/company can be
-  off. Email/URL extraction for `application_channel` is a plain regex
+  off. When every segment in the header line looks like salary/location/
+  employment-type/URL (i.e. no role name at all on the first line — the
+  real roles are usually listed as bullets further down, as with
+  Foxglove's "Onsite (SF) + Remote | Full Time" header), the title falls
+  back to a fixed placeholder ("Role not stated in header — see
+  description") rather than silently reusing one of the rejected
+  segments. Because that placeholder is identical across different
+  postings, `dedupe.py`'s fuzzy company+title matching requires company
+  names to be independently similar (not just the combined string) before
+  merging two records — otherwise two unrelated companies that both hit
+  this fallback would get incorrectly deduped into one. Email/URL
+  extraction for `application_channel` is a plain regex
   over the comment body; when a poster advertises multiple roles under one
   link to their general careers page, that's the only URL that exists in
   the text — there's no per-role link to extract. Comments that look like

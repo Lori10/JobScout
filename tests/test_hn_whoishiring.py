@@ -38,11 +38,16 @@ def test_no_pipe_delimiter_falls_back_to_snippet():
     assert company.startswith("Just a plain sentence")
 
 
-def test_all_segments_filtered_falls_back_to_first():
+def test_all_segments_filtered_uses_honest_placeholder_not_a_rejected_segment():
+    # Real case: Foxglove's header is "Company | Onsite (SF) + Remote |
+    # Full Time | url" with the actual roles listed as bullets further
+    # down - no segment here is a role, so the fallback must not silently
+    # reuse a location string (which is exactly the bug this replaces).
     first_line = "Acme | Remote | Full-time | https://acme.com"
     company, title = _parse_company_and_title(first_line)
     assert company == "Acme"
-    assert title == "Remote"  # nothing role-like present; fallback to first segment
+    assert title not in ("Remote", "Full-time", "https://acme.com")
+    assert "see description" in title.lower()
 
 
 def test_candidate_self_profile_is_skipped_not_parsed_as_job():

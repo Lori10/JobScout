@@ -31,7 +31,8 @@ def filter_config() -> FilterConfig:
         remote_indicator_phrases=["remote", "fully remote", "work from home"],
         needs_review_phrases=["eu only", "europe only", "emea", "european timezones", "eu work authorization"],
         positive_phrases=["worldwide", "anywhere", "b2b", "freelance"],
-        relevance_keywords=["ai", "llm", "machine learning", "rag", "nlp", "langchain", "pytorch", "data scientist"],
+        relevance_keywords=["llm", "machine learning", "rag", "nlp", "langchain", "pytorch", "data scientist"],
+        relevance_keywords_weak=["ai", "ml"],
         non_role_title_phrases=[
             "sales",
             "marketing",
@@ -222,4 +223,31 @@ def test_engineering_title_not_affected_by_non_role_phrases_elsewhere():
         description="Work closely with our sales and marketing teams to build RAG-powered LLM tools.",
     )
     result = apply_keyword_relevance_filter(job, config)
+    assert result.is_relevant is True
+
+
+def test_bare_ai_mention_in_body_only_is_not_relevant(filter_config):
+    # Real case: "please don't send me 5 paragraphs of AI text" made an
+    # unrelated Account Executive/PM posting look relevant. A bare "ai"
+    # hit with no other signal, and not in the title, must not pass.
+    job = make_job(
+        title="Account Executive, Defense and Aerospace",
+        description="Email in profile. Please do not send 5 paragraphs of AI text, just a resume.",
+    )
+    result = apply_keyword_relevance_filter(job, filter_config)
+    assert result.is_relevant is False
+
+
+def test_bare_ai_in_title_is_relevant_even_without_other_signals(filter_config):
+    job = make_job(title="AI Engineer", description="Join our small team building great products.")
+    result = apply_keyword_relevance_filter(job, filter_config)
+    assert result.is_relevant is True
+
+
+def test_bare_ai_in_body_combined_with_strong_signal_is_relevant(filter_config):
+    job = make_job(
+        title="Backend Engineer",
+        description="We use AI extensively, especially LLM-based RAG pipelines.",
+    )
+    result = apply_keyword_relevance_filter(job, filter_config)
     assert result.is_relevant is True

@@ -129,13 +129,20 @@ filters:
 
   # Stage 2 keyword relevance pre-filter. Non-matching jobs are stored in
   # the "irrelevant" state (is_relevant=False), never ranked/shown prominently.
+  #
+  # Split into "strong" (specific, low false-positive-risk terms - a hit
+  # ANYWHERE in the text is enough) and "weak" (bare "ai"/"ml" - too
+  # generic to trust on their own; a body-only hit is a coin flip between
+  # "this role builds AI" and "this company mentions AI somewhere for an
+  # unrelated reason", e.g. a product pitch ("AI browser copilot" hiring a
+  # sales affiliate) or an aside ("please don't send me AI-written text").
+  # A weak hit only counts if it's in the TITLE, where it's a deliberate
+  # role label rather than incidental text.
   relevance_keywords:
-    - "ai"
     - "artificial intelligence"
     - "llm"
     - "large language model"
     - "machine learning"
-    - "ml"
     - "genai"
     - "generative ai"
     - "rag"
@@ -155,6 +162,10 @@ filters:
     - "computer vision"
     - "deep learning"
     - "neural network"
+
+  relevance_keywords_weak:
+    - "ai"
+    - "ml"
 
   # Title-based veto on Stage 2: if the job TITLE clearly names a
   # non-engineering function, it's marked irrelevant regardless of any

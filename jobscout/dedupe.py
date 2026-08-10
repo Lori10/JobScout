@@ -32,16 +32,37 @@ def normalize_url(url: str | None) -> str:
     return urlunsplit(("https", netloc, path, "", ""))
 
 
+_MIN_COMPANY_SIMILARITY = 0.5
+
+
+def _company_key(job: Job) -> str:
+    tokens = [t for t in normalize_text(job.company).split() if t not in _COMPANY_SUFFIX_TOKENS]
+    return " ".join(tokens)
+
+
 def _fuzzy_key(job: Job) -> str:
-    company_tokens = [t for t in normalize_text(job.company).split() if t not in _COMPANY_SUFFIX_TOKENS]
     title_tokens = [_TITLE_ABBREVIATIONS.get(t, t) for t in normalize_text(job.title).split()]
-    return " ".join(company_tokens + title_tokens)
+    return " ".join([_company_key(job)] + title_tokens)
 
 
 def _fuzzy_similarity(a: Job, b: Job) -> float:
     key_a, key_b = _fuzzy_key(a), _fuzzy_key(b)
     if not key_a or not key_b:
         return 0.0
+
+    # A long SHARED title (e.g. two unrelated postings that both fell back
+    # to the same generic "role not stated" placeholder) can dominate the
+    # combined-string ratio even when the companies are completely
+    # different. Require the company names to be reasonably similar on
+    # their own too, so shared boilerplate/title text can never by itself
+    # cause two different companies' postings to be merged.
+    company_a, company_b = _company_key(a), _company_key(b)
+    if not company_a or not company_b:
+        return 0.0
+    company_similarity = SequenceMatcher(None, company_a, company_b).ratio()
+    if company_similarity < _MIN_COMPANY_SIMILARITY:
+        return 0.0
+
     return SequenceMatcher(None, key_a, key_b).ratio()
 
 

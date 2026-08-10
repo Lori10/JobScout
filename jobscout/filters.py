@@ -110,5 +110,13 @@ def apply_keyword_relevance_filter(job: Job, config: FilterConfig) -> Job:
         return replace(job, is_relevant=False)
 
     text_norm = job_relevance_text(job)
-    hits = find_phrase_matches(text_norm, config.relevance_keywords)
-    return replace(job, is_relevant=bool(hits))
+    if find_phrase_matches(text_norm, config.relevance_keywords):
+        return replace(job, is_relevant=True)
+
+    # Bare "ai"/"ml" hits are too generic to trust anywhere in the body
+    # (real case: "please don't send me 5 paragraphs of AI text" made an
+    # unrelated Account Executive/PM posting look relevant) - only count
+    # them when they're in the TITLE, a deliberate role label rather than
+    # incidental text.
+    weak_title_hits = find_phrase_matches(title_norm, config.relevance_keywords_weak)
+    return replace(job, is_relevant=bool(weak_title_hits))

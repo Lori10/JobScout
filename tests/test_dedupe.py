@@ -37,6 +37,24 @@ def test_distinct_jobs_not_deduped():
     assert len(result) == 2
 
 
+def test_different_companies_sharing_a_generic_placeholder_title_not_deduped():
+    # Real bug: two unrelated HN postings ("Foxglove" and "Retool") both
+    # fell back to the identical generic "role not stated" placeholder
+    # title when no segment in their header line looked role-like. The
+    # long shared title text alone pushed combined-string similarity above
+    # threshold even though the companies are completely unrelated,
+    # silently discarding one of them.
+    placeholder = "Role not stated in header — see description"
+    jobs = [
+        make_job(placeholder, "Foxglove", "https://foxglove.dev/", "hn_whoishiring", description="Foxglove desc"),
+        make_job(placeholder, "Retool", "https://retool.com/careers", "hn_whoishiring", description="Retool desc"),
+    ]
+    result = dedupe(jobs)
+    assert len(result) == 2
+    companies = {j.company for j in result}
+    assert companies == {"Foxglove", "Retool"}
+
+
 def test_prefer_richer_description_and_merge_tags():
     job_a = make_job("LLM Engineer", "Acme", "https://acme.com/jobs/1", "remoteok", description="Short.")
     job_a.tags = ["python"]

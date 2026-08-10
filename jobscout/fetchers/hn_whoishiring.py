@@ -161,6 +161,11 @@ def _parse_company_and_title(first_line: str) -> tuple[str, str]:
     for segment in parts[1:]:
         if not _is_non_role_segment(segment):
             return company, segment[:120]
-    # Nothing looked role-like (e.g. every field was salary/location/type) —
-    # fall back to the first segment rather than surfacing nothing.
-    return company, parts[1][:120]
+    # Nothing looked role-like (every field was salary/location/type/URL) —
+    # this usually means the actual role(s) are listed further down in the
+    # body (e.g. a bullet list of open positions), not on the first line.
+    # Falling back to one of the rejected segments would silently
+    # reintroduce exactly what was just filtered out (e.g. a location
+    # string masquerading as a title), so use an honest placeholder
+    # instead — the full text is preserved in description regardless.
+    return company, "Role not stated in header — see description"
