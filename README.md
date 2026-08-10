@@ -98,15 +98,23 @@ unrelated words like `"certain"` or `"html"`).
   Remotive ever splits them out) aren't polled yet. `salary` is free text
   and frequently empty.
 - **HN "Who is hiring?"** — there is no structured job-posting format on
-  HN; comments are freeform prose. Title/company extraction is a
-  best-effort heuristic (splits the first line on `|`, which many but not
-  all posters use) and is frequently wrong or truncated for posts that
-  don't follow that convention (e.g. a post starting with a location line
-  produces a nonsensical "company"/"title"). The full plain-text body is
-  always preserved in `description` regardless, so eligibility/relevance
-  filtering and ranking are unaffected by parsing quality — only the
-  displayed title/company can be off. Email/URL extraction for
-  `application_channel` is a plain regex over the comment body.
+  HN; comments are freeform prose. Title/company extraction splits the
+  first line on `|` and skips segments that look like salary, employment
+  type, location/remote status, or a bare URL when picking which segment
+  is the actual role — but posters don't use a consistent field order, so
+  this is still best-effort and sometimes produces a messy (though at
+  least not actively misleading) title for posts with an unusual format.
+  The full plain-text body is always preserved in `description`
+  regardless, so eligibility/relevance filtering and ranking are
+  unaffected by parsing quality — only the displayed title/company can be
+  off. Email/URL extraction for `application_channel` is a plain regex
+  over the comment body; when a poster advertises multiple roles under one
+  link to their general careers page, that's the only URL that exists in
+  the text — there's no per-role link to extract. Comments that look like
+  a candidate's own "who wants to be hired"-style self-profile (fields
+  like `"Willing to relocate:"` or `"Résumé/CV:"`) are detected and
+  skipped entirely rather than surfaced as fake jobs, since people
+  occasionally cross-post those into the hiring thread.
 - **All sources** — the eligibility filter works by matching curated
   phrases (see `config.yaml`), not by NLP/entity extraction. It reliably
   catches explicit statements like `"US citizens only"` or `"visa

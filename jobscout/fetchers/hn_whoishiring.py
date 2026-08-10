@@ -14,6 +14,7 @@ nothing is lost even when structured parsing fails.
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 
@@ -26,6 +27,29 @@ logger = logging.getLogger(__name__)
 SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
 ITEM_URL_TEMPLATE = "https://hn.algolia.com/api/v1/items/{item_id}"
 TIMEOUT = 20
+
+# Some top-level comments in the hiring thread are job SEEKERS advertising
+# themselves (the convention for that is a separate monthly "Who wants to
+# be hired?" thread, but people cross-post). These use a distinctive
+# "Field: value" self-profile format that real company postings don't —
+# catching it here means we don't surface someone's résumé as a "job".
+_CANDIDATE_PROFILE_RE = re.compile(r"willing to relocate\s*:|r[ée]sum[ée]\s*/?\s*cv\s*:", re.IGNORECASE)
+
+# Heuristics for skipping non-role segments (salary, employment type,
+# location/remote status, bare URLs) when picking which "|"-delimited
+# segment after the company name is actually the role title — posters
+# don't use a consistent field order, so the second segment is often NOT
+# the role (e.g. "Company | 150-250k+ equity | Remote | Multiple roles").
+_MONEY_RE = re.compile(r"\$\s?\d|\d[\d,]*\s?k\+?|equity|salary|/\s*year|/\s*hr\b|per\s+hour|per\s+year", re.IGNORECASE)
+# fullmatch, not search: a segment like "Full-time - https://... GovStar
+# builds ..." contains the word "Full-time" but is NOT purely an
+# employment-type label, so it should fall through and be considered as a
+# (messy but better-than-nothing) title candidate rather than get skipped.
+_EMPLOYMENT_TYPE_ONLY_RE = re.compile(
+    r"(full[\s-]?time|part[\s-]?time|contract(or)?s?|freelance|intern(ship)?)s?", re.IGNORECASE
+)
+_LOCATION_PREFIX_RE = re.compile(r"^(remote|onsite|on-site|hybrid)\b", re.IGNORECASE)
+_URL_PREFIX_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
 class HNWhoIsHiringFetcher:
@@ -81,6 +105,8 @@ class HNWhoIsHiringFetcher:
         plain = strip_html(comment["text"])
         if not plain:
             return None
+        if _CANDIDATE_PROFILE_RE.search(plain[:600]):
+            return None
 
         first_line = plain.splitlines()[0]
         company, title = _parse_company_and_title(first_line)
@@ -113,9 +139,28 @@ class HNWhoIsHiringFetcher:
         )
 
 
+def _is_non_role_segment(segment: str) -> bool:
+    """True if `segment` looks like salary, employment type, location/remote
+    status, or a bare URL — i.e. NOT a role title, even though it commonly
+    appears in the "role" position when posters don't lead with the role."""
+    return bool(
+        _MONEY_RE.search(segment)
+        or _EMPLOYMENT_TYPE_ONLY_RE.fullmatch(segment)
+        or _LOCATION_PREFIX_RE.match(segment)
+        or _URL_PREFIX_RE.match(segment)
+    )
+
+
 def _parse_company_and_title(first_line: str) -> tuple[str, str]:
     parts = [p.strip() for p in first_line.split("|") if p.strip()]
-    if len(parts) >= 2:
-        return parts[0][:120], parts[1][:120]
-    snippet = first_line.strip()[:80] or "HN Who's Hiring post"
-    return snippet, snippet
+    if len(parts) < 2:
+        snippet = first_line.strip()[:80] or "HN Who's Hiring post"
+        return snippet, snippet
+
+    company = parts[0][:120]
+    for segment in parts[1:]:
+        if not _is_non_role_segment(segment):
+            return company, segment[:120]
+    # Nothing looked role-like (e.g. every field was salary/location/type) —
+    # fall back to the first segment rather than surfacing nothing.
+    return company, parts[1][:120]
