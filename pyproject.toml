@@ -6,11 +6,14 @@ requires-python = ">=3.11"
 dependencies = [
     "requests>=2.31",
     "PyYAML>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "httpx>=0.27",
 ]
 
 [build-system]
@@ -18,4 +21,4 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["jobscout", "jobscout.fetchers"]
+packages = ["jobscout", "jobscout.fetchers", "jobscout.web"]
