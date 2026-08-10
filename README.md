@@ -97,7 +97,15 @@ unrelated words like `"certain"` or `"html"`).
 
 - **RemoteOK** — the public API returns only ~100 most-recent postings per
   request (no pagination in Phase 1), and `location`/`tags` fields are
-  occasionally free-text/malformed on the source side.
+  occasionally free-text/malformed on the source side. RemoteOK's own feed
+  occasionally contains non-job entries (e.g. a solo founder using the
+  "post a job" flow to announce a product launch instead of hiring
+  anyone) — these are detected and skipped when an entry has both an
+  empty `slug` and a `url`/`apply_url` that RemoteOK itself fell back to
+  the generic `/remote-jobs` listings page rather than a specific job
+  permalink. Garbled characters occasionally appearing in a title
+  (mis-encoded emoji) are pre-existing corruption in RemoteOK's own
+  stored data, not something introduced by this fetcher.
 - **Remotive** — Phase 1 only polls the `software-dev` category (the URL
   the spec fixed); other categories (e.g. data/AI-specific ones, if
   Remotive ever splits them out) aren't polled yet. `salary` is free text

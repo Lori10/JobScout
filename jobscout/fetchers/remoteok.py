@@ -8,6 +8,7 @@ User-Agent header or RemoteOK responds 403.
 from __future__ import annotations
 
 import logging
+import re
 
 import requests
 
@@ -20,6 +21,20 @@ logger = logging.getLogger(__name__)
 API_URL = "https://remoteok.com/api"
 USER_AGENT = "JobScout/0.1 (personal job-search tool; contact via GitHub)"
 TIMEOUT = 20
+
+# RemoteOK occasionally has junk/promotional entries in its own feed (e.g. a
+# solo founder using the "post a job" flow to announce a product launch,
+# not actually hiring). These reliably have an empty `slug` (RemoteOK
+# auto-generates one for every real listing, to build its permalink) AND a
+# `url`/`apply_url` that RemoteOK itself fell back to the generic listings
+# page instead of a specific job permalink — both signals together are a
+# strong indicator this isn't a real job, not just a sparse one.
+_GENERIC_LISTING_URL_RE = re.compile(r"^https?://(www\.)?remoteok\.com/remote-jobs/?$", re.IGNORECASE)
+
+
+class NotAJobError(Exception):
+    """Raised for feed entries that aren't real job postings (e.g. RemoteOK
+    platform spam/promo content) so they're skipped rather than stored."""
 
 
 class RemoteOKFetcher:
@@ -42,11 +57,18 @@ class RemoteOKFetcher:
         for item in data[1:]:  # index 0 is a legal-notice row, not a job
             try:
                 jobs.append(self._parse_item(item))
+            except NotAJobError as exc:
+                logger.info("remoteok: skipping non-job entry %r (%s)", item.get("id"), exc)
             except Exception:
                 logger.warning("remoteok: skipping malformed item %r", item.get("id"), exc_info=True)
         return jobs
 
     def _parse_item(self, item: dict) -> Job:
+        if not (item.get("slug") or "").strip() and _GENERIC_LISTING_URL_RE.match(
+            (item.get("url") or item.get("apply_url") or "").strip()
+        ):
+            raise NotAJobError("empty slug and URL points at the generic listings page, not a specific job")
+
         title = item["position"]
         company = item["company"]
         description = strip_html(item.get("description", ""))
