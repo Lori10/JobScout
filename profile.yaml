@@ -13,13 +13,17 @@ role_targets:
 
 # Used by ranker.py for skill_match %. Keep phrases short/lowercase-matchable;
 # matching is case-insensitive substring matching (see filters.normalize_text).
+# Deliberately no bare "ReAct" entry: it is case-insensitively identical to
+# "React" (the JS framework) after normalization, so it would credit every
+# frontend React job with the unrelated AI-agent-pattern skill. "AI agents",
+# "tool use", "function calling", and "multi-agent" already cover that facet
+# without the collision.
 core_skills:
   - "RAG"
   - "LangChain"
   - "Hugging Face"
   - "Transformers"
   - "AI agents"
-  - "ReAct"
   - "tool use"
   - "function calling"
   - "multi-agent"
