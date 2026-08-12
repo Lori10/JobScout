@@ -5,7 +5,8 @@ Albania. Fetches postings from multiple sources, filters out ones that
 aren't legally/practically doable from Albania, ranks the rest against a
 hardcoded skills/experience profile, and produces a CLI summary, a static
 HTML report, and a web dashboard. See [PLAN.md](PLAN.md) for the full
-5-phase roadmap — **this repo currently implements Phases 1 and 2.**
+5-phase roadmap — **this repo currently implements Phases 1, 2, and 3, plus
+a slice of Phase 4** (Ashby/Greenhouse bundled-comment expansion).
 
 ## Status
 
@@ -16,8 +17,19 @@ logic.
 
 Phase 2: done. A FastAPI + React dashboard (see below) for browsing,
 filtering, and moving jobs through their status lifecycle, plus
-triggering a fetch from the browser. No AI ranking, no other fetchers
-yet.
+triggering a fetch from the browser. No new fetchers.
+
+Phase 3: done. An optional `ranking_mode: ai` (see below) that re-scores
+jobs via a pluggable LLM provider (Google Gemini by default, Anthropic
+Claude as a drop-in alternative), DB-cached so a job is never re-scored
+twice in the same mode, with retry/backoff, description truncation,
+per-run cost logging, automatic fallback to the heuristic scorer, and a
+per-job "Re-rank with AI" dashboard action.
+
+Phase 4: partially done. HN "who is hiring" comments that link to a bare
+Ashby or Greenhouse board (rather than one specific role) are expanded
+into one `Job` per listed role via that ATS's public API — see known
+limitations below. No new fetchers (RSS/other job boards) yet.
 
 ## Install
 
@@ -129,12 +141,54 @@ jobscout.web.app:app --reload` and `cd frontend && npm run dev` in two
 separate terminals, if you'd rather see each process's output on its
 own.)
 
+## AI-assisted ranking (Phase 3)
+
+Set `ranking_mode: ai` in `config.yaml` to re-score eligible/relevant jobs
+via an LLM instead of the heuristic scorer, producing the same score/
+skill_match/contract_type_guess/reasons/red_flags shape plus an additive
+`seniority_fit` field, and folding in a spam/"is this actually a job
+posting?" sanity check (see RemoteOK's known limitations below) into the
+same call.
+
+```yaml
+ranking_mode: ai
+ai:
+  provider: gemini        # gemini | anthropic
+  model: gemini-3.5-flash-lite
+  max_description_chars: 4000
+  max_retries: 3
+```
+
+Copy `.env.example` to `.env` and fill in the key for whichever provider
+you use (`jobscout/__main__.py` loads `.env` automatically):
+
+- **`gemini`** (default) — free tier via Google AI Studio. Get a key at
+  <https://aistudio.google.com/apikey> and set `GEMINI_API_KEY`.
+- **`anthropic`** — Claude API. Get a key at <https://console.anthropic.com/>
+  and set `ANTHROPIC_API_KEY`. Switching from Gemini is just these two
+  config/env changes — `jobscout/llm/` abstracts the provider behind a
+  shared interface (`jobscout/llm/__init__.py`'s `PROVIDER_REGISTRY`, same
+  extension pattern as `fetchers/`), so `ai_ranker.py`/`pipeline.py` never
+  need to change.
+
+A job already AI-ranked is never re-scored on a later `jobscout run` (DB-
+cached by `ranking_source`) — a run logs a one-line cost/call summary
+(`AI ranker: N call(s), ... estimated cost $...`). If the configured
+provider's API key isn't set, or every retry for a job fails, that job
+(or the whole run, if the key is simply missing) falls back to the
+heuristic scorer automatically, logging a warning rather than crashing.
+The dashboard's per-job "Re-rank with AI" button bypasses this cache and
+force-calls the AI scorer for just that job — unlike the bulk run, a
+failure there is surfaced as an error rather than silently substituting
+the heuristic score, since re-rank is an explicit request for an AI
+result.
+
 ## Tuning
 
 - **`profile.yaml`** — role targets, core skills, experience, languages,
   work-setup preference, location. Edit freely; reloaded every run.
-- **`config.yaml`** — source on/off toggles, `ranking_mode` (only
-  `heuristic` is implemented in Phase 1), `min_score_threshold`, every
+- **`config.yaml`** — source on/off toggles, `ranking_mode` (`heuristic` or
+  `ai` — see "AI-assisted ranking" above), `min_score_threshold`, every
   phrase list used by the eligibility filter (`exclude_phrases`,
   `hybrid_onsite_phrases`, `remote_indicator_phrases`,
   `needs_review_phrases`, `positive_phrases`), the keyword relevance
@@ -144,9 +198,10 @@ own.)
   title-based veto list (`non_role_title_phrases` — sales/marketing/
   design/recruiting/etc. job titles are marked irrelevant regardless of
   keyword hits elsewhere, since company/product boilerplate often
-  mentions "AI" even when hiring for an unrelated function), and the
-  ranker's weighted `keyword_groups` +
-  bonus caps.
+  mentions "AI" even when hiring for an unrelated function), the
+  heuristic ranker's weighted `keyword_groups` + bonus caps, and the `ai`
+  block (`provider`/`model`/`max_description_chars`/`max_retries`) used
+  only when `ranking_mode: ai`.
 
 All phrase matching is case-insensitive, punctuation-tolerant, and
 word-boundary-anchored (so `"US CITIZENS ONLY"`, `"U.S. Citizens Only"`,
@@ -183,10 +238,13 @@ still counts as a match.
   scraped HTTP error page). Each fix here targets a specific, well-
   evidenced signal found by manually auditing live data — this is a
   whack-a-mole problem that pure phrase/structure heuristics can't fully
-  solve, and is a natural candidate for Phase 3's AI-assisted mode (an
-  LLM sanity-check of "is this actually a job posting?" generalizes far
-  better than hand-rolled rules). Spam that slips through is still
-  visible and auditable in `report.html` like any other stored job.
+  solve. With `ranking_mode: ai` (Phase 3), the AI scorer's structured
+  output includes an `is_job_posting` sanity check folded into the same
+  call as scoring, which generalizes far better than hand-rolled rules; a
+  listing it flags scores 0 with a red flag noting the AI's judgment, but
+  still shows up in `report.html`/the dashboard rather than being
+  silently dropped. Spam that slips through either mode is still visible
+  and auditable in `report.html` like any other stored job.
 - **Remotive** — Phase 1 only polls the `software-dev` category (the URL
   the spec fixed); other categories (e.g. data/AI-specific ones, if
   Remotive ever splits them out) aren't polled yet. `salary` is free text
@@ -220,27 +278,29 @@ still counts as a match.
   like `"Willing to relocate:"` or `"Résumé/CV:"`) are detected and
   skipped entirely rather than surfaced as fake jobs, since people
   occasionally cross-post those into the hiring thread.
-- **Bundled multi-role HN comments can be wrongly marked irrelevant** — a
-  single comment sometimes advertises many distinct roles at once (e.g.
-  `"Multiple positions in United States - WORK FROM HOME"` followed by a
-  list of 9 role names and separate application links per role). The
-  relevance filter judges the *whole comment's text* as one unit; if none
-  of the listed role names happen to contain a configured AI/LLM keyword
-  (even if one of the roles individually would be relevant — e.g. a
-  "Staff Product Manager, Agent Platform" role at a company that is
-  otherwise a good fit), the entire bundle is marked `irrelevant`, hiding
-  it from the ranked view even though the linked careers page may have
-  additional or more clearly AI-relevant listings. This is a structural
-  limitation of "one HN comment = one Job record, text-only relevance" —
-  not a simple keyword-list gap (loosening the keyword list to catch
-  generic terms like bare `"agent"` would introduce far more false
-  positives than it fixes, since that word is common in unrelated
-  contexts like sales/support/real-estate). A real fix would mean
-  fetching each individually linked role (several of these are Greenhouse
-  ATS links, which has a public per-company JSON API and wouldn't count
-  as HTML scraping) and creating one `Job` per linked role instead of one
-  per HN comment — not implemented yet; see [PLAN.md](PLAN.md) for
-  whether/when this lands.
+- **Bundled multi-role HN comments** — a single comment sometimes
+  advertises many distinct roles at once instead of one. When the comment
+  links to a bare **Ashby or Greenhouse** board-root URL (e.g.
+  `jobs.ashbyhq.com/starbridge`, no specific job id in the path —
+  `jobscout/fetchers/ats_boards.py`'s `detect_board()` is what
+  distinguishes this from an already-specific job link), this is now
+  fixed (Phase 4): that one HN comment is expanded into one `Job` per role
+  fetched from the ATS's own public JSON API, each with its own
+  title/description/location/apply-URL, so eligibility/relevance/ranking
+  are judged per-role instead of on the comment's aggregate text. Falls
+  back to the old single-Job behavior on any API failure or empty result.
+  **Still a limitation for every other case**: a comment that lists
+  several role names with separate application links written directly in
+  its own prose (e.g. `"Multiple positions in United States - WORK FROM
+  HOME"` followed by 9 role names each with its own link, none going
+  through Ashby/Greenhouse) still becomes one `Job` record judged on the
+  whole comment's text — if none of the listed role names happen to
+  contain a configured AI/LLM keyword (even if one individually would be
+  relevant), the entire bundle is marked `irrelevant`. Extending this to
+  other ATS platforms (Lever, etc.) is straightforward following the same
+  pattern in `ats_boards.py`; parsing arbitrary per-role links out of free
+  prose (rather than one ATS board API call) is a fundamentally harder,
+  not-yet-attempted problem. See [PLAN.md](PLAN.md) Phase 4 for scope.
 - **All sources** — the eligibility filter works by matching curated
   phrases (see `config.yaml`), not by NLP/entity extraction. It reliably
   catches explicit statements like `"US citizens only"` or `"visa
@@ -262,10 +322,15 @@ jobscout/
   models.py     Job dataclass + enums (shared across all 5 phases)
   config.py     typed loader for config.yaml / profile.yaml
   htmlutils.py  shared HTML-to-plain-text stripping
-  fetchers/     one module per source + a registry (Phase 4 drops in here)
+  fetchers/     one module per source + a registry (Phase 4 drops in here);
+                ats_boards.py expands a bundled Ashby/Greenhouse board link
+                into one Job per role (used by hn_whoishiring.py)
   dedupe.py     normalized-URL + fuzzy company/title matching
   filters.py    pure eligibility + keyword-relevance functions
-  ranker.py     heuristic scorer (Phase 3 adds an AI scorer, same output shape)
+  ranker.py     heuristic scorer, same output shape ai_ranker.py produces
+  ai_ranker.py  Phase 3: AI scorer (provider-agnostic; see jobscout/llm/)
+  llm/          Phase 3: LLM provider abstraction + registry (gemini.py,
+                anthropic_provider.py) - same extension pattern as fetchers/
   db.py         stdlib sqlite3 storage
   pipeline.py   orchestrates fetch -> dedupe -> filter -> rank -> store -> report
   report.py     CLI table + report.html
@@ -286,4 +351,10 @@ US-only, EU-only vs. needs_review, worldwide, EST overlap vs. PST-required,
 hybrid-with/without-remote-mention, German posts not excluded for language,
 punctuation/case tolerance), `ranker.py` (score bounds, LLM/RAG keywords
 outscoring generic Python, title/positive/recency bonuses, all four
-`contract_type_guess` branches), `dedupe.py`, `db.py`, and `htmlutils.py`.
+`contract_type_guess` branches), `dedupe.py`, `db.py` (including the
+`seniority_fit` column migration for pre-Phase-3 databases), `htmlutils.py`,
+`config.py` (`ai` block parsing, `ranking_mode` validation), the `gemini`/
+`anthropic` providers' error normalization in `jobscout/llm/` (mocked SDK
+clients, no real network calls), `ai_ranker.py` (structured-output mapping,
+retry/backoff, fatal-vs-transient error handling, cost/token summary), and
+`pipeline.py`'s AI dispatch/caching/fallback logic and `rerank_job()`.

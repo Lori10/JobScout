@@ -28,45 +28,69 @@ through its `status` lifecycle (new → interested → applied → interview →
 rejected/ignored). No new fetchers or ranking logic — purely a read/write
 UI over what Phase 1 already produces and stores.
 
-## Phase 3 (later) — AI-assisted ranking
+## Phase 3 (built) — AI-assisted ranking
 
-An optional `ranking_mode: ai` that calls the Claude API to re-score a job,
+An optional `ranking_mode: ai` that calls an LLM to re-score a job,
 producing the exact same `RankResult` shape `ranker.py` already produces
 (plus an additive `seniority_fit` field), with DB-cached results (a job is
 never re-ranked twice in the same mode), retry/backoff, description
 truncation (~4000 chars), per-run cost logging, and automatic fallback to
-the heuristic scorer on any failure or missing `ANTHROPIC_API_KEY`. A
-per-job "re-rank" action overwrites the AI fields while leaving
-`ranking_source` accurate so the dashboard can show which scorer produced
-a given result.
+the heuristic scorer on any failure or missing provider API key. A per-job
+"re-rank" action overwrites the AI fields while leaving `ranking_source`
+accurate so the dashboard can show which scorer produced a given result,
+and — unlike the bulk pipeline run — surfaces a failure as an error rather
+than silently substituting the heuristic score, since it's an explicit
+request for an AI result.
 
-Also worth scoping in here: a lightweight "is this actually a job
-posting?" sanity check. Phase 1's phrase/structure heuristics (e.g.
-RemoteOK's `full time`+`part time` tag contradiction) catch specific,
-well-evidenced spam patterns one at a time, but RemoteOK's free API has
-an ongoing, broader spam problem (product-launch announcements, duplicate
-listings reusing identical marketing copy under fake "job titles," scraped
-error pages) that a growing whack-a-mole list of rules won't fully solve.
-An LLM classification pass generalizes far better here than more rules.
+The LLM call itself goes through a small provider abstraction
+(`jobscout/llm/`, registry-extensible like `fetchers/`) rather than being
+hard-wired to one vendor: **Google Gemini is the default** (free tier via
+Google AI Studio, no ongoing cost), with **Anthropic Claude implemented
+behind the same interface** as a drop-in alternative — switching is a
+`config.yaml` change (`ai.provider`) plus the corresponding API key env
+var, no code changes.
 
-## Phase 4 (later) — More sources
+The "is this actually a job posting?" sanity check is also built, folded
+into the same structured-output call as scoring (not a second API call).
+Phase 1's phrase/structure heuristics (e.g. RemoteOK's `full time`+
+`part time` tag contradiction) catch specific, well-evidenced spam
+patterns one at a time, but RemoteOK's free API has an ongoing, broader
+spam problem (product-launch announcements, duplicate listings reusing
+identical marketing copy under fake "job titles," scraped error pages)
+that a growing whack-a-mole list of rules won't fully solve — the LLM
+classification generalizes far better. A listing flagged this way scores
+0 with a red flag noting the AI's judgment, but stays visible (not
+silently dropped) so it can be audited like any other stored job.
 
-Additional fetchers dropped into the existing `fetchers/` registry with no
+## Phase 4 (partially built) — More sources
+
+**Built:** expanding bundled multi-role HN "Who is hiring" comments (one
+comment advertising several distinct roles, each with its own application
+link — see README known limitations) into one `Job` per linked role, for
+the two most common ATS platforms found in practice — **Ashby and
+Greenhouse** — via their public, unauthenticated JSON job-board APIs
+(`jobscout/fetchers/ats_boards.py`). A bare board-root link (e.g.
+`jobs.ashbyhq.com/starbridge`, no specific job id in the path) is detected
+and expanded into N `Job`s, one per listed role, each with its own
+title/description/location/apply-URL from the ATS's own data — instead of
+the whole bundle being judged as a single Job on the HN comment's
+aggregate text. A URL that already names one specific role (has an extra
+path segment) is left untouched. Falls back to the original single-Job
+behavior on any API failure, empty result, or unsupported platform — this
+must never lose a posting outright. Capped at 40 roles per board so one
+large company's board doesn't flood the pipeline.
+
+**Not yet built:** Lever and other ATS platforms (also seen in real data —
+`jobs.lever.co` links currently still get treated as a single bundled Job)
+would follow the identical pattern in `ats_boards.py` — same registry-style
+extension (a `_fetch_lever`/`_lever_posting_to_job` pair plus a
+`detect_board` regex, mirroring Ashby/Greenhouse). Also not yet built:
+additional fetchers dropped into the existing `fetchers/` registry with no
 changes to `pipeline.py`: We Work Remotely (RSS), Jobicy (API), Arbeitnow
 (API), Himalayas (API/RSS), and experimental German freelance marketplaces
 (freelancermap.de, freelance.de). These are exactly where the German-
 language positive-signal phrases already in `config.yaml` start mattering
 most, since Phase 1's three sources are almost entirely English-language.
-
-Also in scope for this phase: expanding bundled multi-role HN "Who is
-hiring" comments (one comment advertising several distinct roles, each
-with its own application link — see README known limitations) into one
-`Job` per linked role where the link is a known ATS with a public API
-(e.g. Greenhouse's per-company job board API), instead of treating the
-whole bundle as a single Job whose relevance is judged on the comment's
-aggregate text. This is source-fetching work, so it fits naturally
-alongside the new fetchers above, even though it improves an existing
-source (HN) rather than adding a new one.
 
 ## Phase 5 (later) — Research briefs and outreach drafting
 
