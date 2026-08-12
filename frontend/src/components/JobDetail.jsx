@@ -1,3 +1,4 @@
+import RerankButton from "./RerankButton.jsx";
 import StatusControl from "./StatusControl.jsx";
 
 export default function JobDetail({ job, onClose, onJobUpdated }) {
@@ -19,11 +20,15 @@ export default function JobDetail({ job, onClose, onJobUpdated }) {
 
         <div className="modal-row">
           <strong>Status:</strong> <StatusControl job={job} onUpdated={onJobUpdated} />
+          &nbsp;&nbsp;
+          <RerankButton job={job} onUpdated={onJobUpdated} />
         </div>
         <div className="modal-row">
           <strong>Score:</strong> {job.score ?? 0} &nbsp;
           <strong>Skill match:</strong> {job.skill_match ?? "?"} &nbsp;
-          <strong>Contract:</strong> {job.contract_type_guess}
+          <strong>Contract:</strong> {job.contract_type_guess} &nbsp;
+          <strong>Seniority fit:</strong> {job.seniority_fit ?? "?"} &nbsp;
+          <strong>Ranked by:</strong> {job.ranking_source}
         </div>
 
         {job.reasons.length > 0 && (

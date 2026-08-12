@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from jobscout import pipeline
 from jobscout.db import get_jobs, init_db, set_status
-from jobscout.web.schemas import JobOut, StatusUpdateIn
+from jobscout.web.schemas import JobOut, RerankIn, StatusUpdateIn
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,26 @@ def update_job_status(payload: StatusUpdateIn, conn: sqlite3.Connection = Depend
         if job.dedup_key == payload.dedup_key:
             return JobOut.model_validate(job)
     raise HTTPException(404, f"no job with dedup_key {payload.dedup_key!r}")
+
+
+@router.post("/jobs/rerank", response_model=JobOut)
+def rerank_job(payload: RerankIn, request: Request) -> JobOut:
+    # A re-rank is an explicit request for an AI result, so failures are
+    # surfaced (not silently downgraded to the heuristic score) — unlike
+    # pipeline.run()'s bulk fallback behavior.
+    try:
+        job = pipeline.rerank_job(
+            payload.dedup_key,
+            config_path=request.app.state.config_path,
+            profile_path=request.app.state.profile_path,
+            db_path=request.app.state.db_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from None
+    except Exception:
+        logger.exception("pipeline.rerank_job() failed during /api/jobs/rerank")
+        raise HTTPException(500, "re-rank failed; check server logs") from None
+    return JobOut.model_validate(job)
 
 
 @router.post("/fetch", response_model=list[JobOut])

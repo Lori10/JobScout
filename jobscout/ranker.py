@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from jobscout.config import FilterConfig, Profile, RankerConfig
 from jobscout.filters import find_phrase_matches, job_relevance_text, normalize_text
-from jobscout.models import ContractTypeGuess, EligibilityBucket, Job, RankingSource
+from jobscout.models import ContractTypeGuess, EligibilityBucket, Job, RankingSource, SeniorityFit
 
 # Rule-based, fixed-priority keyword scan for contract_type_guess. B2B is
 # checked first so "B2B contract" resolves to B2B, not FREELANCE; FREELANCE
@@ -37,11 +37,17 @@ _FREELANCE_PHRASES = [
 ]
 _EMPLOYMENT_PHRASES = ["full-time employment", "permanent position", "full time employee", "permanent role", "full time"]
 
-_ELIGIBILITY_CONFIDENCE_BY_BUCKET = {
+# Public: reused by ai_ranker.py so eligibility_confidence stays a single
+# deterministic mapping owned here, rather than something an LLM guesses.
+ELIGIBILITY_CONFIDENCE_BY_BUCKET = {
     EligibilityBucket.ELIGIBLE: 100,
     EligibilityBucket.NEEDS_REVIEW: 60,
     EligibilityBucket.EXCLUDED: 0,
 }
+
+
+def eligibility_confidence_for(bucket: EligibilityBucket) -> int:
+    return ELIGIBILITY_CONFIDENCE_BY_BUCKET.get(bucket, 50)
 
 
 @dataclass
@@ -53,6 +59,7 @@ class RankResult:
     reasons: list[str] = field(default_factory=list)
     red_flags: list[str] = field(default_factory=list)
     ranking_source: RankingSource = RankingSource.HEURISTIC
+    seniority_fit: SeniorityFit | None = None  # AI-only; heuristic scorer leaves this None
 
 
 def guess_contract_type(text_norm: str) -> ContractTypeGuess:
@@ -152,7 +159,7 @@ def score_job(job: Job, ranker_config: RankerConfig, filter_config: FilterConfig
     else:
         red_flags.append("no core skills from profile found in description")
 
-    eligibility_confidence = _ELIGIBILITY_CONFIDENCE_BY_BUCKET.get(job.eligibility_bucket, 50)
+    eligibility_confidence = eligibility_confidence_for(job.eligibility_bucket)
 
     contract_type_guess = guess_contract_type(text_norm)
 
@@ -179,7 +186,7 @@ def trivial_rank_result(job: Job) -> RankResult:
     return RankResult(
         score=0,
         skill_match=0,
-        eligibility_confidence=_ELIGIBILITY_CONFIDENCE_BY_BUCKET.get(job.eligibility_bucket, 0),
+        eligibility_confidence=eligibility_confidence_for(job.eligibility_bucket),
         contract_type_guess=ContractTypeGuess.UNCLEAR,
         reasons=[reason],
         red_flags=[],

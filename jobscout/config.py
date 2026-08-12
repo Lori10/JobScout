@@ -42,12 +42,24 @@ class RankerConfig:
 
 
 @dataclass
+class AIConfig:
+    provider: str = "gemini"
+    model: str = "gemini-3.5-flash-lite"
+    max_description_chars: int = 4000
+    max_retries: int = 3
+
+
+_VALID_RANKING_MODES = {"heuristic", "ai"}
+
+
+@dataclass
 class AppConfig:
     sources: dict[str, bool] = field(default_factory=dict)
     ranking_mode: str = "heuristic"
     min_score_threshold: int = 30
     filters: FilterConfig = field(default_factory=FilterConfig)
     ranker: RankerConfig = field(default_factory=RankerConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
 
 
 @dataclass
@@ -70,9 +82,15 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
         for name, group in ranker_raw.get("keyword_groups", {}).items()
     }
 
+    ranking_mode = raw.get("ranking_mode", "heuristic")
+    if ranking_mode not in _VALID_RANKING_MODES:
+        raise ValueError(f"ranking_mode must be one of {sorted(_VALID_RANKING_MODES)}, got {ranking_mode!r}")
+
+    ai_raw = raw.get("ai", {})
+
     return AppConfig(
         sources=dict(raw.get("sources", {})),
-        ranking_mode=raw.get("ranking_mode", "heuristic"),
+        ranking_mode=ranking_mode,
         min_score_threshold=int(raw.get("min_score_threshold", 30)),
         filters=FilterConfig(
             exclude_phrases=list(filters_raw.get("exclude_phrases", [])),
@@ -90,6 +108,12 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
             positive_signal_bonus_cap=int(ranker_raw.get("positive_signal_bonus_cap", 15)),
             recency_bonus_max=int(ranker_raw.get("recency_bonus_max", 10)),
             near_miss_penalty=int(ranker_raw.get("near_miss_penalty", 10)),
+        ),
+        ai=AIConfig(
+            provider=ai_raw.get("provider", "gemini"),
+            model=ai_raw.get("model", "gemini-3.5-flash-lite"),
+            max_description_chars=int(ai_raw.get("max_description_chars", 4000)),
+            max_retries=int(ai_raw.get("max_retries", 3)),
         ),
     )
 

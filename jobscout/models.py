@@ -61,6 +61,16 @@ class RankingSource(str, Enum):
     AI = "ai"
 
 
+class SeniorityFit(str, Enum):
+    """Phase 3 AI-only judgment of how the role's seniority compares to the
+    profile's experience level. Never set by the heuristic scorer."""
+
+    UNDER_QUALIFIED = "under_qualified"
+    MATCH = "match"
+    OVER_QUALIFIED = "over_qualified"
+    UNCLEAR = "unclear"
+
+
 @dataclass
 class Job:
     # --- core content, populated by every fetcher ---
@@ -94,6 +104,7 @@ class Job:
     reasons: list[str] = field(default_factory=list)
     red_flags: list[str] = field(default_factory=list)
     ranking_source: RankingSource = RankingSource.HEURISTIC
+    seniority_fit: SeniorityFit | None = None  # AI-only; heuristic scorer leaves this None
 
     # --- Phase 2+ user workflow state ---
     status: JobStatus = JobStatus.NEW

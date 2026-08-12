@@ -19,6 +19,7 @@ from jobscout.models import (
     Job,
     JobStatus,
     RankingSource,
+    SeniorityFit,
 )
 
 SCHEMA = """
@@ -46,6 +47,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     reasons TEXT,
     red_flags TEXT,
     ranking_source TEXT NOT NULL DEFAULT 'heuristic',
+    seniority_fit TEXT,
     status TEXT NOT NULL DEFAULT 'new',
     first_seen_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
@@ -82,7 +84,15 @@ _UPDATE_COLUMNS = [
     "reasons",
     "red_flags",
     "ranking_source",
+    "seniority_fit",
     "last_seen_at",
+]
+
+# Additive columns for DBs created before they existed. CREATE TABLE IF NOT
+# EXISTS is a no-op on an existing table, so a new column needs its own
+# ALTER TABLE here, guarded by a PRAGMA table_info check so it's idempotent.
+_MIGRATIONS: list[tuple[str, str]] = [
+    ("seniority_fit", "ALTER TABLE jobs ADD COLUMN seniority_fit TEXT"),
 ]
 
 
@@ -92,6 +102,10 @@ def init_db(path: str | Path = "data/jobscout.db") -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    existing_columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)")}
+    for column, alter_sql in _MIGRATIONS:
+        if column not in existing_columns:
+            conn.execute(alter_sql)
     conn.commit()
     return conn
 
@@ -133,6 +147,7 @@ def _job_to_row(job: Job, now: datetime) -> dict:
         "reasons": json.dumps(job.reasons or []),
         "red_flags": json.dumps(job.red_flags or []),
         "ranking_source": job.ranking_source.value,
+        "seniority_fit": job.seniority_fit.value if job.seniority_fit else None,
         "status": job.status.value,
         "first_seen_at": _iso(job.first_seen_at) or now.isoformat(),
         "last_seen_at": now.isoformat(),
@@ -177,6 +192,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         reasons=json.loads(row["reasons"]) if row["reasons"] else [],
         red_flags=json.loads(row["red_flags"]) if row["red_flags"] else [],
         ranking_source=RankingSource(row["ranking_source"]),
+        seniority_fit=SeniorityFit(row["seniority_fit"]) if row["seniority_fit"] else None,
         status=JobStatus(row["status"]),
         first_seen_at=_parse_iso(row["first_seen_at"]),
         last_seen_at=_parse_iso(row["last_seen_at"]),
@@ -195,6 +211,11 @@ def get_jobs(conn: sqlite3.Connection, order_by: str = "score DESC") -> list[Job
         raise ValueError(f"unsafe order_by clause: {order_by!r}")
     cursor = conn.execute(f"SELECT * FROM jobs ORDER BY {order_by}")
     return [_row_to_job(row) for row in cursor.fetchall()]
+
+
+def get_job_by_dedup_key(conn: sqlite3.Connection, dedup_key: str) -> Job | None:
+    row = conn.execute("SELECT * FROM jobs WHERE dedup_key = ?", (dedup_key,)).fetchone()
+    return _row_to_job(row) if row else None
 
 
 def set_status(conn: sqlite3.Connection, dedup_key: str, status: JobStatus) -> None:

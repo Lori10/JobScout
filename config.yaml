@@ -7,10 +7,31 @@ sources:
   remotive: true
   hn_whoishiring: true
 
-# "heuristic" is the only mode Phase 1 implements. "ai" is reserved for
-# Phase 3; if set before Phase 3 lands, pipeline.py logs a warning and
-# falls back to heuristic rather than crashing.
-ranking_mode: heuristic
+# "heuristic" (Phase 1) or "ai" (Phase 3). If "ai" is set but the active
+# provider's API key env var isn't set, or every AI call fails, pipeline.py
+# logs a warning once and falls back to the heuristic scorer for the run.
+ranking_mode: ai
+
+# Only used when ranking_mode is "ai". provider selects which jobscout/llm/
+# backend runs the AI scorer (see PROVIDER_REGISTRY in jobscout/llm/__init__.py):
+#   gemini    - free tier via Google AI Studio; needs GEMINI_API_KEY
+#   anthropic - Claude API; needs ANTHROPIC_API_KEY
+# A job already AI-ranked is never re-scored again on a later run (DB-cached
+# by ranking_source) unless re-ranked explicitly from the dashboard.
+ai:
+  provider: gemini
+  # Google retires/renames Gemini model IDs faster than this comment can
+  # keep up (gemini-2.5-flash 404'd for new API keys as of Aug 2026). If
+  # this model 404s with "no longer available", list what your key can
+  # actually call:
+  #   .venv/bin/python -c "from dotenv import load_dotenv; load_dotenv(); \
+  #     from google import genai; import os; c = genai.Client(api_key=os.environ['GEMINI_API_KEY']); \
+  #     [print(m.name) for m in c.models.list()]"
+  # then test candidates with client.models.generate_content(model=..., contents="hi")
+  # since ListModels can list a model that still 404s on generateContent.
+  model: gemini-3.5-flash-lite
+  max_description_chars: 4000
+  max_retries: 3
 
 # Jobs scoring below this still get stored (never silently dropped), but
 # are excluded from the CLI top-20 view. report.html always shows everything.

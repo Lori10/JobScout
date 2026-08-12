@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from jobscout.db import init_db, upsert_job
-from jobscout.models import EligibilityBucket, Job, JobStatus
+from jobscout.models import EligibilityBucket, Job, JobStatus, RankingSource, SeniorityFit
 from jobscout.web.app import create_app
 
 
@@ -95,5 +95,39 @@ def test_fetch_now_calls_pipeline_run_once_and_returns_refreshed_jobs(client):
 def test_fetch_now_returns_500_when_pipeline_run_fails(client):
     with patch("jobscout.web.routes.pipeline.run", side_effect=RuntimeError("boom")):
         response = client.post("/api/fetch")
+
+    assert response.status_code == 500
+
+
+def test_seniority_fit_round_trips_through_get_jobs(client):
+    response = client.get("/api/jobs")
+    jobs = response.json()
+    assert all(j["seniority_fit"] is None for j in jobs)
+
+
+def test_rerank_returns_updated_job(client):
+    updated = make_job(ranking_source=RankingSource.AI, score=95, seniority_fit=SeniorityFit.MATCH)
+    with patch("jobscout.web.routes.pipeline.rerank_job", return_value=updated) as mock_rerank:
+        response = client.post("/api/jobs/rerank", json={"dedup_key": "https://example.com/jobs/1"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["score"] == 95
+    assert body["ranking_source"] == "ai"
+    assert body["seniority_fit"] == "match"
+    mock_rerank.assert_called_once()
+    assert mock_rerank.call_args.args[0] == "https://example.com/jobs/1"
+
+
+def test_rerank_returns_404_for_unknown_job(client):
+    with patch("jobscout.web.routes.pipeline.rerank_job", side_effect=ValueError("no job with dedup_key 'x'")):
+        response = client.post("/api/jobs/rerank", json={"dedup_key": "x"})
+
+    assert response.status_code == 404
+
+
+def test_rerank_returns_500_on_ai_failure(client):
+    with patch("jobscout.web.routes.pipeline.rerank_job", side_effect=RuntimeError("AI provider down")):
+        response = client.post("/api/jobs/rerank", json={"dedup_key": "https://example.com/jobs/1"})
 
     assert response.status_code == 500

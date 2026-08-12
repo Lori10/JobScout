@@ -8,6 +8,10 @@ dependencies = [
     "PyYAML>=6.0",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+    "google-genai>=1.0",
+    "anthropic>=0.40",
+    "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -21,4 +25,4 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["jobscout", "jobscout.fetchers", "jobscout.web"]
+packages = ["jobscout", "jobscout.fetchers", "jobscout.web", "jobscout.llm"]

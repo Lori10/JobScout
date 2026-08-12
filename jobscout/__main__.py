@@ -8,6 +8,13 @@ import os
 
 
 def main() -> None:
+    from dotenv import load_dotenv
+
+    # Loads .env into os.environ (e.g. GEMINI_API_KEY/ANTHROPIC_API_KEY) before
+    # either subcommand runs; a no-op if .env doesn't exist. `serve`'s
+    # uvicorn.run() call below runs in-process, so this covers both commands.
+    load_dotenv()
+
     parser = argparse.ArgumentParser(prog="jobscout")
     parser.add_argument(
         "--log-level",

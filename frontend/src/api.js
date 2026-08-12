@@ -21,3 +21,11 @@ export function postStatus(dedupKey, status) {
 export function postFetch() {
   return fetch("/api/fetch", { method: "POST" }).then(handle);
 }
+
+export function postRerank(dedupKey) {
+  return fetch("/api/jobs/rerank", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dedup_key: dedupKey }),
+  }).then(handle);
+}

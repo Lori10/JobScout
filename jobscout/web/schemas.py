@@ -18,6 +18,7 @@ from jobscout.models import (
     EligibilityBucket,
     JobStatus,
     RankingSource,
+    SeniorityFit,
 )
 
 
@@ -50,6 +51,7 @@ class JobOut(BaseModel):
     reasons: list[str] = []
     red_flags: list[str] = []
     ranking_source: RankingSource
+    seniority_fit: SeniorityFit | None = None
 
     status: JobStatus
     first_seen_at: datetime | None = None
@@ -62,3 +64,7 @@ class JobOut(BaseModel):
 class StatusUpdateIn(BaseModel):
     dedup_key: str
     status: JobStatus
+
+
+class RerankIn(BaseModel):
+    dedup_key: str
