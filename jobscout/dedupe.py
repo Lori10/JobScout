@@ -45,7 +45,26 @@ def _fuzzy_key(job: Job) -> str:
     return " ".join([_company_key(job)] + title_tokens)
 
 
+def _is_ats_expansion_role(job: Job) -> bool:
+    """True if this Job's URL is an ATS-assigned unique per-role identifier
+    (set by ats_boards.posting_to_job's source_id convention:
+    f"{comment_id}:{platform}:{raw_id}") rather than a generic company
+    page. Real case: two distinct Starbridge roles, "Account Executive -
+    Mid Market" and "Account Executive - Mid Market | NYC" (different
+    Ashby posting ids/URLs), scored 0.95 fuzzy similarity - well above
+    FUZZY_THRESHOLD - and got wrongly merged into one Job. Fuzzy title
+    matching exists to catch the same posting mirrored under different
+    URLs; it has nothing ambiguous to resolve between two ATS-expansion
+    roles, which already have distinct, source-confirmed identities no
+    matter how similar their titles look."""
+    source_id = job.source_id or ""
+    return ":ashby:" in source_id or ":greenhouse:" in source_id
+
+
 def _fuzzy_similarity(a: Job, b: Job) -> float:
+    if _is_ats_expansion_role(a) and _is_ats_expansion_role(b):
+        return 0.0
+
     key_a, key_b = _fuzzy_key(a), _fuzzy_key(b)
     if not key_a or not key_b:
         return 0.0

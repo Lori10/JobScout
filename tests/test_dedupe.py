@@ -2,8 +2,8 @@ from jobscout.dedupe import dedupe, normalize_url
 from jobscout.models import Job
 
 
-def make_job(title, company, url, source, description="") -> Job:
-    return Job(title=title, company=company, description=description, url=url, source=source)
+def make_job(title, company, url, source, description="", source_id=None) -> Job:
+    return Job(title=title, company=company, description=description, url=url, source=source, source_id=source_id)
 
 
 def test_normalize_url_ignores_www_trailing_slash_and_scheme():
@@ -53,6 +53,50 @@ def test_different_companies_sharing_a_generic_placeholder_title_not_deduped():
     assert len(result) == 2
     companies = {j.company for j in result}
     assert companies == {"Foxglove", "Retool"}
+
+
+def test_distinct_ats_expansion_roles_at_same_company_not_fuzzy_merged():
+    # Real bug: two distinct Starbridge roles from the Ashby board
+    # expansion, "Account Executive - Mid Market" and "Account Executive -
+    # Mid Market | NYC" (different Ashby posting ids/URLs), scored 0.95
+    # fuzzy similarity - above FUZZY_THRESHOLD - and got wrongly merged
+    # into one Job despite being genuinely different postings.
+    jobs = [
+        make_job(
+            "Account Executive - Mid Market",
+            "Starbridge",
+            "https://jobs.ashbyhq.com/starbridge/e0ae2e0a",
+            "hn_whoishiring",
+            source_id="123:ashby:e0ae2e0a",
+        ),
+        make_job(
+            "Account Executive - Mid Market | NYC",
+            "Starbridge",
+            "https://jobs.ashbyhq.com/starbridge/e6e89d93",
+            "hn_whoishiring",
+            source_id="123:ashby:e6e89d93",
+        ),
+    ]
+    result = dedupe(jobs)
+    assert len(result) == 2
+
+
+def test_ats_expansion_role_still_fuzzy_matched_against_a_non_expansion_duplicate():
+    # The skip only applies when BOTH jobs are from an ATS expansion -
+    # cross-source dedup (the fuzzy matcher's actual purpose) must still
+    # work when one side is a normal fetcher result.
+    jobs = [
+        make_job(
+            "Senior LLM Engineer",
+            "Acme Inc",
+            "https://jobs.ashbyhq.com/acme/abc123",
+            "hn_whoishiring",
+            source_id="1:ashby:abc123",
+        ),
+        make_job("Sr. LLM Engineer", "Acme", "https://acme.com/careers/llm-eng-role", "remotive"),
+    ]
+    result = dedupe(jobs)
+    assert len(result) == 1
 
 
 def test_prefer_richer_description_and_merge_tags():
