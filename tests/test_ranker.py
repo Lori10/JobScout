@@ -72,6 +72,24 @@ def test_llm_rag_keywords_score_higher_than_generic_python(ranker_config, filter
     assert result_b.score > result_a.score
 
 
+def test_ai_hiring_disclosure_boilerplate_does_not_inflate_score(filter_config, profile):
+    # ranker.score_job() shares filters.job_relevance_text() with the Stage
+    # 2 relevance filter - a legally-mandated "we use AI to screen
+    # applicants" disclosure sentence must not count toward a keyword-
+    # group score any more than it counts toward relevance.
+    config = RankerConfig(keyword_groups={"ai": KeywordGroup(weight=1.0, phrases=["artificial intelligence"])})
+    job = make_job(
+        title="Warehouse Associate",
+        description=(
+            "Pack boxes and operate a forklift. In our commitment to a fair hiring "
+            "experience, Acme uses Artificial Intelligence (AI) technology to assist "
+            "with the screening and assessment of applicants for this position."
+        ),
+    )
+    result = score_job(job, config, filter_config, profile)
+    assert not any("keyword group" in r for r in result.reasons)
+
+
 def test_title_match_bonus_applied(ranker_config, filter_config, profile):
     job_with_title_match = make_job(title="LLM Engineer", description="Generic description with no keywords.")
     job_without = make_job(title="Backend Engineer", description="Generic description with no keywords.")

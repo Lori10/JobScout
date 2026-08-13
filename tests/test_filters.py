@@ -293,3 +293,36 @@ def test_bare_ai_in_body_combined_with_strong_signal_is_relevant(filter_config):
     )
     result = apply_keyword_relevance_filter(job, filter_config)
     assert result.is_relevant is True
+
+
+def test_ai_hiring_disclosure_boilerplate_does_not_trigger_relevance():
+    # Real case: a retail "Loss Prevention Specialist" posting with zero
+    # actual AI/ML content passed the relevance filter purely because of a
+    # legally-mandated hiring-process disclosure sentence (NYC Local Law
+    # 144-style: "Company uses Artificial Intelligence (AI) technology to
+    # assist with the screening and assessment of applicants"). That's
+    # about the employer's hiring process, not the job's substance.
+    config = FilterConfig(relevance_keywords=["artificial intelligence"])
+    job = make_job(
+        title="Loss Prevention Specialist",
+        description=(
+            "Maintain aisle cleanliness and assist customers in the store. "
+            "In our commitment to a fair hiring experience, The Home Depot Canada uses "
+            "Artificial Intelligence (AI) technology to assist with the screening and "
+            "assessment of applicants for this position."
+        ),
+    )
+    result = apply_keyword_relevance_filter(job, config)
+    assert result.is_relevant is False
+
+
+def test_genuine_ai_mention_in_body_still_counts_when_not_disclosure_boilerplate():
+    # The strip must be narrowly targeted at hiring-process disclosure
+    # sentences, not any sentence mentioning AI near "applicants".
+    config = FilterConfig(relevance_keywords=["artificial intelligence"])
+    job = make_job(
+        title="Backend Engineer",
+        description="You will build the Artificial Intelligence platform that powers our product.",
+    )
+    result = apply_keyword_relevance_filter(job, config)
+    assert result.is_relevant is True

@@ -87,12 +87,31 @@ def find_phrase_matches(text_norm: str, phrases: list[str]) -> list[str]:
     return matches
 
 
+# Legally-mandated hiring-process AI-disclosure boilerplate (e.g. NYC Local
+# Law 144-style notices: "Company uses Artificial Intelligence (AI)
+# technology to assist with the screening and assessment of applicants")
+# is about the EMPLOYER'S hiring process, not the job's substance, but a
+# bare "artificial intelligence" mention anywhere in the body otherwise
+# counts as a strong relevance signal. Real case: a retail "Loss Prevention
+# Specialist" posting with zero actual AI/ML content passed the relevance
+# filter purely because of this disclosure sentence — stripped here,
+# before relevance keyword matching, rather than in the exclude-phrase
+# list, since it's a false *positive* signal, not something to exclude the
+# job over.
+_AI_HIRING_DISCLOSURE_RE = re.compile(
+    r"[^.]*\b(artificial intelligence|\bai\b)\b[^.]*\b(screen|assess|evaluat|review)[^.]*"
+    r"\b(applicant|application|candidate|resume|r[ée]sum[ée]|hiring process)[^.]*\.",
+    re.IGNORECASE,
+)
+
+
 def job_eligibility_text(job: Job) -> str:
     return normalize_text(" ".join([job.title, job.description, job.location_text or ""]))
 
 
 def job_relevance_text(job: Job) -> str:
-    return normalize_text(" ".join([job.title, job.description]))
+    combined = " ".join([job.title, job.description])
+    return normalize_text(_AI_HIRING_DISCLOSURE_RE.sub(" ", combined))
 
 
 def apply_eligibility_filter(job: Job, config: FilterConfig) -> Job:
