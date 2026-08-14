@@ -42,6 +42,13 @@ ai:
   model: gemini-3.5-flash-lite
   max_description_chars: 4000
   max_retries: 3
+  # Minimum seconds between AI calls, enforced proactively rather than
+  # firing fast and backing off on 429s. gemini-3.5-flash-lite's free tier
+  # caps at 15 requests/minute — 4.5s keeps every call under that with
+  # headroom. Raise this if you're still seeing RESOURCE_EXHAUSTED/429 in
+  # the logs; lower it (or set near 0) on a paid tier or a provider with a
+  # higher limit, where this would only slow runs down for no reason.
+  min_seconds_between_calls: 4.5
 
 # Jobs scoring below this still get stored (never silently dropped), but
 # are excluded from the CLI top-20 view. report.html always shows everything.

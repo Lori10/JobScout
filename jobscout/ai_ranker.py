@@ -74,6 +74,25 @@ class AIRanker:
         self._call_count = 0
         self._input_tokens = 0
         self._output_tokens = 0
+        self._last_call_at: float | None = None
+
+    def _wait_for_rate_limit(self) -> None:
+        """Proactively paces calls to stay under the provider's per-minute
+        quota, rather than firing fast and backing off on 429s. Gemini's
+        free tier caps gemini-3.5-flash-lite at 15 requests/minute — a
+        batch of newly-fetched jobs used to blow straight through that in
+        seconds, triggering a long, visible chain of 429/retry/backoff
+        cycles that could run for several minutes and looked stuck enough
+        that Ctrl-C was the natural response. `min_seconds_between_calls`
+        defaults to a value that keeps every call under that cap with
+        headroom; adjust it in config.yaml (ai.min_seconds_between_calls)
+        to match a different provider or a paid tier's actual limit."""
+        if self._last_call_at is None:
+            return
+        elapsed = time.monotonic() - self._last_call_at
+        remaining = self._ai_config.min_seconds_between_calls - elapsed
+        if remaining > 0:
+            time.sleep(remaining)
 
     def score_job(self, job: Job) -> RankResult:
         """Raises AIRankingError if the AI scorer can't produce a result —
@@ -86,6 +105,7 @@ class AIRanker:
         result = None
         last_exc: Exception | None = None
         for attempt in range(self._ai_config.max_retries + 1):
+            self._wait_for_rate_limit()
             try:
                 result = self._provider.complete_structured(
                     system=system,
@@ -102,6 +122,8 @@ class AIRanker:
                 last_exc = exc
                 if attempt < self._ai_config.max_retries:
                     time.sleep(min(2**attempt, 8))
+            finally:
+                self._last_call_at = time.monotonic()
         if result is None:
             raise AIRankingError(
                 f"AI ranking failed after {self._ai_config.max_retries + 1} attempt(s): {last_exc}"

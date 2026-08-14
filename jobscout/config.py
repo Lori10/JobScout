@@ -47,6 +47,7 @@ class AIConfig:
     model: str = "gemini-3.5-flash-lite"
     max_description_chars: int = 4000
     max_retries: int = 3
+    min_seconds_between_calls: float = 4.5
 
 
 _VALID_RANKING_MODES = {"heuristic", "ai"}
@@ -114,6 +115,7 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
             model=ai_raw.get("model", "gemini-3.5-flash-lite"),
             max_description_chars=int(ai_raw.get("max_description_chars", 4000)),
             max_retries=int(ai_raw.get("max_retries", 3)),
+            min_seconds_between_calls=float(ai_raw.get("min_seconds_between_calls", 4.5)),
         ),
     )
 

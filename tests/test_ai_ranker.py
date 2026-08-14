@@ -169,3 +169,88 @@ def test_ai_contract_type_used_when_fetcher_left_it_unclear(ai_config, profile):
     provider = _FakeProvider([make_schema(contract_type_guess="b2b")])
     ranker = AIRanker(provider, ai_config, profile)
     assert ranker.score_job(make_job()).contract_type_guess == ContractTypeGuess.B2B
+
+
+# --- Rate-limit pacing ---
+
+
+class _FakeClock:
+    """A controllable stand-in for time.monotonic, advanced explicitly by
+    tests rather than depending on real wall-clock time."""
+
+    def __init__(self, start: float = 0.0):
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def fake_clock(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(ai_ranker_module.time, "monotonic", clock)
+    return clock
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    """Overrides the module-level no_real_sleep no-op with one that
+    records each requested duration, scoped to this test via monkeypatch
+    (unlike direct attribute assignment, this is automatically undone at
+    test teardown rather than leaking into later tests)."""
+    recorded: list[float] = []
+    monkeypatch.setattr(ai_ranker_module.time, "sleep", lambda s: recorded.append(s))
+    return recorded
+
+
+def test_first_call_does_not_wait(ai_config, profile, fake_clock, sleeps):
+    ranker = AIRanker(_FakeProvider([make_schema()]), ai_config, profile)
+    ranker.score_job(make_job())
+    assert sleeps == []
+
+
+def test_second_call_within_window_waits_the_remainder(ai_config, profile, fake_clock, sleeps):
+    ranker = AIRanker(_FakeProvider([make_schema(), make_schema()]), ai_config, profile)
+
+    ranker.score_job(make_job())
+    fake_clock.advance(1.0)  # only 1s of the 4.5s minimum has passed
+    ranker.score_job(make_job())
+
+    assert sleeps and abs(sleeps[0] - 3.5) < 1e-9
+
+
+def test_second_call_after_window_elapsed_does_not_wait(ai_config, profile, fake_clock, sleeps):
+    ranker = AIRanker(_FakeProvider([make_schema(), make_schema()]), ai_config, profile)
+
+    ranker.score_job(make_job())
+    fake_clock.advance(10.0)  # well past the 4.5s minimum
+    ranker.score_job(make_job())
+
+    assert sleeps == []
+
+
+def test_min_seconds_between_calls_is_configurable(profile, fake_clock, sleeps):
+    ai_config = AIConfig(provider="gemini", model="gemini-2.5-flash", max_retries=2, min_seconds_between_calls=1.0)
+    ranker = AIRanker(_FakeProvider([make_schema(), make_schema()]), ai_config, profile)
+
+    ranker.score_job(make_job())
+    fake_clock.advance(0.5)
+    ranker.score_job(make_job())
+
+    assert sleeps and abs(sleeps[0] - 0.5) < 1e-9
+
+
+def test_pacing_applies_between_retries_of_the_same_job(ai_config, profile, fake_clock, sleeps):
+    # A transient failure's own backoff sleep happens in addition to
+    # pacing - both should show up as separate sleep calls.
+    ranker = AIRanker(_FakeProvider([TransientProviderError("boom"), make_schema()]), ai_config, profile)
+
+    ranker.score_job(make_job())
+    # First attempt: no wait (first call ever). After the failure, the
+    # existing backoff sleep(min(2**0, 8)) = 1s fires, then the retry's
+    # own pacing check runs on top of that.
+    assert len(sleeps) == 2
+    assert sleeps[0] == 1  # retry backoff
