@@ -1,3 +1,4 @@
+from jobscout.models import ContractTypeGuess
 from jobscout.fetchers.ats_boards import (
     detect_board,
     fetch_board_postings,
@@ -96,6 +97,74 @@ def test_resolve_board_returns_none_on_request_failure(monkeypatch):
 def test_resolve_board_returns_none_for_empty_url():
     assert resolve_board(None) is None
     assert resolve_board("") is None
+
+
+class FakeBodyResponse:
+    def __init__(self, text, status_ok=True):
+        self.text = text
+        self._status_ok = status_ok
+
+    def raise_for_status(self):
+        if not self._status_ok:
+            raise RuntimeError("boom")
+
+
+def test_resolve_board_finds_board_link_embedded_in_page_body(monkeypatch):
+    # Real case: langfuse.com/careers returns 200 with NO redirect at all —
+    # it's Langfuse's own rendered careers page — but the page's HTML links
+    # jobs.ashbyhq.com/langfuse (7 real open roles) from an anchor rather
+    # than redirecting to it. The redirect-only check can never see this.
+    page_html = '<a href="https://jobs.ashbyhq.com/langfuse">Open roles</a>'
+
+    def fake_get(url, **kwargs):
+        if kwargs.get("stream"):
+            return FakeRedirectResponse(url)  # no redirect: same URL back
+        return FakeBodyResponse(page_html)
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    assert resolve_board("https://langfuse.com/careers") == ("ashby", "langfuse")
+
+
+def test_resolve_board_body_scan_ignores_non_board_links(monkeypatch):
+    page_html = '<a href="https://langfuse.com/blog/post">Blog</a> <a href="https://langfuse.com/handbook">Handbook</a>'
+
+    def fake_get(url, **kwargs):
+        return FakeRedirectResponse(url) if kwargs.get("stream") else FakeBodyResponse(page_html)
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    assert resolve_board("https://acme.com/careers") is None
+
+
+def test_resolve_board_body_scan_only_runs_when_redirect_check_finds_nothing(monkeypatch):
+    # The cheap streamed redirect check already found a board — the second,
+    # heavier full-body request must never fire.
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(kwargs.get("stream", False))
+        return FakeRedirectResponse("https://jobs.ashbyhq.com/starbridge")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    assert resolve_board("https://starbridge.ai/careers") == ("ashby", "starbridge")
+    assert calls == [True]
+
+
+def test_resolve_board_body_scan_failure_returns_none(monkeypatch):
+    def fake_get(url, **kwargs):
+        if kwargs.get("stream"):
+            return FakeRedirectResponse(url)
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    assert resolve_board("https://acme.com/careers") is None
+
+
+def test_resolve_board_body_scan_handles_http_error_status(monkeypatch):
+    def fake_get(url, **kwargs):
+        return FakeRedirectResponse(url) if kwargs.get("stream") else FakeBodyResponse("", status_ok=False)
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    assert resolve_board("https://acme.com/careers") is None
 
 
 def test_resolve_board_skips_network_call_for_already_specific_ats_link(monkeypatch):
@@ -216,3 +285,388 @@ def test_greenhouse_posting_to_job_returns_none_without_title():
 
 def test_posting_to_job_returns_none_for_unknown_platform():
     assert posting_to_job("bogus", {}, company="Acme", comment_id=1, fallback_posted_date=None) is None
+
+
+# ---- lever ----
+
+
+def make_lever_posting(**overrides) -> dict:
+    """Shape verified live against https://api.lever.co/v0/postings/matchgroup?mode=json."""
+    defaults = {
+        "id": "3414ba28",
+        "text": "Android Engineer III",
+        "categories": {
+            "commitment": "Full-time",
+            "department": "Hinge",
+            "location": "New York, New York",
+            "team": "Engineering",
+        },
+        "createdAt": 1779223091267,
+        "descriptionPlain": "Hinge is the dating app designed to be deleted.",
+        "additionalPlain": "401(k) Matching and other benefits.",
+        "lists": [{"text": "Responsibilities", "content": "<li>Ship <b>Python</b> services</li>"}],
+        "workplaceType": "hybrid",
+        "hostedUrl": "https://jobs.lever.co/matchgroup/3414ba28",
+        "applyUrl": "https://jobs.lever.co/matchgroup/3414ba28/apply",
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def test_detect_board_matches_lever_board_root():
+    assert detect_board("https://jobs.lever.co/matchgroup") == ("lever", "matchgroup")
+    assert detect_board("https://jobs.lever.co/matchgroup/") == ("lever", "matchgroup")
+
+
+def test_detect_board_does_not_match_lever_specific_job_link():
+    # Already names one role — not a bundle, so it must be left alone.
+    assert detect_board("https://jobs.lever.co/matchgroup/3414ba28-35f7-45d3") is None
+
+
+def test_resolve_board_skips_network_call_for_specific_lever_link(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("requests.get should not have been called")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert resolve_board("https://jobs.lever.co/matchgroup/3414ba28-35f7") is None
+
+
+def test_fetch_lever_postings_reads_bare_list_and_caps_count(monkeypatch):
+    # Lever returns a BARE list, unlike Ashby/Greenhouse's {"jobs": [...]}.
+    postings = [make_lever_posting(id=str(i)) for i in range(50)]
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse(postings))
+    result = fetch_board_postings("lever", "matchgroup")
+    assert len(result) == 40
+
+
+def test_fetch_lever_postings_returns_empty_for_wrapped_payload(monkeypatch):
+    # If Lever ever started wrapping, silently reading nothing beats
+    # crashing — the caller falls back to the single-Job behavior.
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse({"jobs": []}))
+    assert fetch_board_postings("lever", "matchgroup") == []
+
+
+def test_fetch_lever_postings_returns_empty_on_request_failure(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert fetch_board_postings("lever", "matchgroup") == []
+
+
+def test_fetch_lever_postings_handles_empty_board(monkeypatch):
+    # A real, valid response: api.lever.co/v0/postings/lever returns [].
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse([]))
+    assert fetch_board_postings("lever", "lever") == []
+
+
+def test_lever_posting_to_job_maps_fields():
+    job = posting_to_job("lever", make_lever_posting(), company="Match Group", comment_id=123, fallback_posted_date=None)
+    assert job is not None
+    assert job.title == "Android Engineer III"
+    assert job.company == "Match Group"
+    assert job.url == "https://jobs.lever.co/matchgroup/3414ba28"
+    assert job.tags == ["Engineering", "Hinge"]
+    assert job.source_id == "123:lever:3414ba28"
+    assert job.source == "hn_whoishiring"
+
+
+def test_lever_posting_to_job_parses_millisecond_timestamp():
+    job = posting_to_job("lever", make_lever_posting(), company="Match Group", comment_id=1, fallback_posted_date=None)
+    # Read as seconds this value would land tens of thousands of years out.
+    assert job.posted_date is not None and job.posted_date.year == 2026
+
+
+def test_lever_posting_to_job_falls_back_when_created_at_missing():
+    from datetime import datetime, timezone
+
+    fallback = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    job = posting_to_job(
+        "lever", make_lever_posting(createdAt=None), company="Match Group", comment_id=1, fallback_posted_date=fallback
+    )
+    assert job.posted_date == fallback
+
+
+def test_lever_posting_to_job_includes_list_sections_in_description():
+    # `lists` holds the Responsibilities/Requirements bullets — the skill
+    # text the ranker and relevance filter actually need.
+    job = posting_to_job("lever", make_lever_posting(), company="Match Group", comment_id=1, fallback_posted_date=None)
+    assert "Hinge is the dating app" in job.description
+    assert "Responsibilities" in job.description
+    assert "Ship Python services" in job.description
+    assert "401(k) Matching" in job.description
+    assert "<li>" not in job.description
+
+
+def test_lever_posting_to_job_survives_missing_prose_fields():
+    # Measured live: descriptionPlain was absent on 4 of 81 real postings.
+    job = posting_to_job(
+        "lever",
+        make_lever_posting(descriptionPlain=None, additionalPlain=None, lists=[]),
+        company="Match Group",
+        comment_id=1,
+        fallback_posted_date=None,
+    )
+    assert job is not None and job.description == ""
+
+
+def test_lever_commitment_becomes_contract_type_guess():
+    job = posting_to_job("lever", make_lever_posting(), company="X", comment_id=1, fallback_posted_date=None)
+    assert job.contract_type_guess == ContractTypeGuess.EMPLOYMENT
+
+    contract = make_lever_posting()
+    contract["categories"] = dict(contract["categories"], commitment="Contract")
+    assert (
+        posting_to_job("lever", contract, company="X", comment_id=1, fallback_posted_date=None).contract_type_guess
+        == ContractTypeGuess.FREELANCE
+    )
+
+
+def test_lever_workplace_type_reaches_location_text():
+    # workplaceType's vocabulary already matches config.yaml's
+    # hybrid_onsite_phrases, so Stage 1 can act on it.
+    job = posting_to_job("lever", make_lever_posting(), company="X", comment_id=1, fallback_posted_date=None)
+    assert job.location_text == "New York, New York, hybrid"
+
+    remote = posting_to_job(
+        "lever", make_lever_posting(workplaceType="remote"), company="X", comment_id=1, fallback_posted_date=None
+    )
+    assert remote.location_text.endswith("remote")
+
+
+def test_lever_posting_to_job_returns_none_without_url_or_title():
+    assert posting_to_job("lever", make_lever_posting(hostedUrl=None, applyUrl=None), company="X", comment_id=1, fallback_posted_date=None) is None
+    assert posting_to_job("lever", make_lever_posting(text=None), company="X", comment_id=1, fallback_posted_date=None) is None
+
+
+# ---- workable ----
+
+
+def make_workable_posting(**overrides) -> dict:
+    """Shape verified live against
+    https://apply.workable.com/api/v1/widget/accounts/sumble-inc."""
+    defaults = {
+        "title": "Account Executive",
+        "shortcode": "6E479FF65A",
+        "employment_type": "",
+        "department": None,
+        "url": "https://apply.workable.com/j/6E479FF65A",
+        "application_url": "https://apply.workable.com/j/6E479FF65A/apply",
+        "published_on": "2026-07-15",
+        "created_at": "2025-01-09",
+        "country": "United States",
+        "city": "",
+        "state": "",
+        "_board_company_name": "Sumble Inc",
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def test_detect_board_matches_workable_path_board_root():
+    assert detect_board("https://apply.workable.com/sumble-inc") == ("workable", "sumble-inc")
+    assert detect_board("https://apply.workable.com/sumble-inc/") == ("workable", "sumble-inc")
+
+
+def test_detect_board_matches_workable_subdomain_board_root():
+    # Real case: this exact URL was what an HN comment's apply link
+    # resolved to for Sumble.
+    assert detect_board("https://sumble-inc.workable.com") == ("workable", "sumble-inc")
+    assert detect_board("https://sumble-inc.workable.com/") == ("workable", "sumble-inc")
+
+
+def test_detect_board_does_not_match_workable_specific_job_link():
+    assert detect_board("https://apply.workable.com/j/6E479FF65A") is None
+    assert detect_board("https://apply.workable.com/sumble-inc/j/6E479FF65A") is None
+
+
+def test_detect_board_excludes_apply_and_www_as_a_company_slug():
+    # "apply.workable.com" alone (no slug after it) must not be mistaken
+    # for a company subdomain board.
+    assert detect_board("https://apply.workable.com/") is None
+    assert detect_board("https://www.workable.com/") is None
+
+
+def test_resolve_board_skips_network_call_for_specific_workable_job_link(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("requests.get should not have been called")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert resolve_board("https://apply.workable.com/j/6E479FF65A") is None
+
+
+def test_fetch_workable_postings_reads_jobs_stamps_company_and_caps_count(monkeypatch):
+    postings = [make_workable_posting(shortcode=str(i)) for i in range(50)]
+    payload = {"name": "Sumble Inc", "description": None, "jobs": postings}
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse(payload))
+    result = fetch_board_postings("workable", "sumble-inc")
+    assert len(result) == 40
+    assert all(p["_board_company_name"] == "Sumble Inc" for p in result)
+
+
+def test_fetch_workable_postings_returns_empty_for_unexpected_shape(monkeypatch):
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse([1, 2, 3]))
+    assert fetch_board_postings("workable", "sumble-inc") == []
+
+
+def test_fetch_workable_postings_returns_empty_on_request_failure(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert fetch_board_postings("workable", "sumble-inc") == []
+
+
+def test_fetch_workable_postings_handles_missing_or_null_name(monkeypatch):
+    payload = {"name": None, "jobs": [make_workable_posting()]}
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse(payload))
+    result = fetch_board_postings("workable", "sumble-inc")
+    assert result[0]["_board_company_name"] is None
+
+
+def test_fetch_workable_snippet_extracts_and_unescapes_meta_description(monkeypatch):
+    from jobscout.fetchers.ats_boards import _fetch_workable_snippet
+
+    page = '<html><head><meta name="description" content="About Us: Sumble&#x27;s focus is data &amp; AI..."></head></html>'
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse(page))
+    snippet = _fetch_workable_snippet("https://apply.workable.com/j/6E479FF65A")
+    assert snippet == "About Us: Sumble's focus is data & AI..."
+
+
+def test_fetch_workable_snippet_returns_none_without_meta_tag(monkeypatch):
+    from jobscout.fetchers.ats_boards import _fetch_workable_snippet
+
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html><head></head></html>")
+    )
+    assert _fetch_workable_snippet("https://apply.workable.com/j/6E479FF65A") is None
+
+
+def test_fetch_workable_snippet_never_raises_on_request_failure(monkeypatch):
+    from jobscout.fetchers.ats_boards import _fetch_workable_snippet
+
+    def boom(*a, **k):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert _fetch_workable_snippet("https://apply.workable.com/j/6E479FF65A") is None
+
+
+def test_workable_posting_to_job_prefers_board_company_name_over_comment_company(monkeypatch):
+    # Real case this exists for: the HN comment's header had no "|"
+    # delimiters, so the comment-parsed "company" was a duplicated 80-char
+    # snippet — Workable's own board-level name is far more trustworthy.
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(),
+        company="Sumble is the newco from the founders of Kaggle...",
+        comment_id=49157182,
+        fallback_posted_date=None,
+    )
+    assert job.company == "Sumble Inc"
+
+
+def test_workable_posting_to_job_falls_back_to_comment_company_when_board_name_missing(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(_board_company_name=None),
+        company="Fallback Co",
+        comment_id=1,
+        fallback_posted_date=None,
+    )
+    assert job.company == "Fallback Co"
+
+
+def test_workable_posting_to_job_prepends_original_comment_text(monkeypatch):
+    page = '<meta name="description" content="Short SEO snippet.">'
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse(page))
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(),
+        company="Sumble Inc",
+        comment_id=1,
+        fallback_posted_date=None,
+        original_description="Sumble is the newco from the founders of Kaggle. We are hiring.",
+    )
+    assert job.description.startswith("Sumble is the newco from the founders of Kaggle. We are hiring.")
+    assert "Role: Account Executive" in job.description
+    assert "Short SEO snippet." in job.description
+
+
+def test_workable_posting_to_job_degrades_gracefully_without_snippet(monkeypatch):
+    # A failed/missing snippet must never lose the original comment text —
+    # that's the whole point of prepending it.
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(),
+        company="Sumble Inc",
+        comment_id=1,
+        fallback_posted_date=None,
+        original_description="Original comment text.",
+    )
+    assert job is not None
+    assert "Original comment text." in job.description
+    assert "Role: Account Executive" in job.description
+
+
+def test_workable_posting_to_job_maps_location_tags_and_contract_type(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(country="Germany", city="Berlin", department="Engineering", employment_type="Contract"),
+        company="Sumble Inc",
+        comment_id=1,
+        fallback_posted_date=None,
+    )
+    assert job.location_text == "Berlin, Germany"
+    assert job.tags == ["Engineering"]
+    assert job.contract_type_guess == ContractTypeGuess.FREELANCE
+    assert job.source == "hn_whoishiring"
+    assert job.source_id == "1:workable:6E479FF65A"
+
+
+def test_workable_posting_to_job_posted_date_prefers_published_over_created(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job(
+        "workable", make_workable_posting(), company="Sumble Inc", comment_id=1, fallback_posted_date=None
+    )
+    assert job.posted_date.year == 2026 and job.posted_date.month == 7
+
+
+def test_workable_posting_to_job_falls_back_to_fallback_date_when_both_missing(monkeypatch):
+    from datetime import datetime, timezone
+
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    fallback = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(published_on=None, created_at=None),
+        company="Sumble Inc",
+        comment_id=1,
+        fallback_posted_date=fallback,
+    )
+    assert job.posted_date == fallback
+
+
+def test_workable_posting_to_job_returns_none_without_url_or_title(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    assert posting_to_job("workable", make_workable_posting(url=None), company="X", comment_id=1, fallback_posted_date=None) is None
+    assert posting_to_job("workable", make_workable_posting(title=None), company="X", comment_id=1, fallback_posted_date=None) is None

@@ -17,11 +17,12 @@ import concurrent.futures
 import logging
 import re
 from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 import requests
 
 from jobscout.fetchers.ats_boards import detect_board, fetch_board_postings, posting_to_job, resolve_board
-from jobscout.fetchers.common import extract_apply_url, extract_email, extract_href_urls, parse_iso_datetime
+from jobscout.fetchers.common import URL_RE, extract_apply_url, extract_email, extract_href_urls, parse_iso_datetime
 from jobscout.htmlutils import strip_html
 from jobscout.models import ApplicationChannel, Job
 
@@ -65,6 +66,30 @@ _HN_PERMALINK_PREFIX = "https://news.ycombinator.com/item"
 class HNWhoIsHiringFetcher:
     name = "hn_whoishiring"
 
+    # --- Per-thread hooks -------------------------------------------------
+    # Everything below this class that varies between HN's monthly threads
+    # is reachable through these three; hn_freelancer.py subclasses and
+    # overrides them, inheriting fetch(), the concurrent board resolution
+    # and the ATS expansion unchanged.
+    search_query = '"Ask HN: Who is hiring"'
+
+    def _matches_thread_title(self, title: str) -> bool:
+        """`title` is already lowercased. Must exclude the sibling monthly
+        threads, which the same search happily returns."""
+        return "who is hiring" in title and "wants to be hired" not in title and "freelancer" not in title
+
+    def _accept_comment(self, plain: str) -> bool:
+        """True if this comment is someone HIRING rather than someone
+        advertising themselves. Some top-level comments here are job
+        SEEKERS cross-posting from the "Who wants to be hired?" thread."""
+        return not _CANDIDATE_PROFILE_RE.search(plain[:600])
+
+    def _header_line(self, plain: str) -> str:
+        """The line company/title parsing runs on."""
+        return plain.splitlines()[0]
+
+    # ----------------------------------------------------------------------
+
     def fetch(self) -> list[Job]:
         story_id = self._find_latest_thread_id()
         if story_id is None:
@@ -92,7 +117,16 @@ class HNWhoIsHiringFetcher:
 
         jobs: list[Job] = []
         for job, comment in parsed:
-            jobs.extend(self._expand_bundled_board(job, comment, resolved_cache))
+            expanded = self._expand_bundled_board(job, comment, resolved_cache)
+            if len(expanded) == 1 and expanded[0] is job:
+                # No shared board link to expand — try the other shape:
+                # each bulleted role carrying its OWN distinct URL right in
+                # the text (see _bulleted_role_link_jobs). Only attempted
+                # when board expansion found nothing, since a real ATS
+                # API's per-role data is richer than what can be recovered
+                # from the comment's own prose.
+                expanded = _bulleted_role_link_jobs(job, extract_href_urls(comment.get("text")))
+            jobs.extend(expanded)
         return jobs
 
     def _resolve_boards_concurrently(self, jobs: Iterable[Job]) -> dict[str, tuple[str, str] | None]:
@@ -157,6 +191,7 @@ class HNWhoIsHiringFetcher:
                 company=job.company,
                 comment_id=comment.get("id"),
                 fallback_posted_date=job.posted_date,
+                original_description=job.description,
             )
             for raw in postings
         ]
@@ -167,18 +202,17 @@ class HNWhoIsHiringFetcher:
         try:
             response = requests.get(
                 SEARCH_URL,
-                params={"query": '"Ask HN: Who is hiring"', "tags": "story"},
+                params={"query": self.search_query, "tags": "story"},
                 timeout=TIMEOUT,
             )
             response.raise_for_status()
             data = response.json()
         except Exception:
-            logger.warning("hn_whoishiring: search request failed", exc_info=True)
+            logger.warning("%s: search request failed", self.name, exc_info=True)
             return None
 
         for hit in data.get("hits", []):
-            title = (hit.get("title") or "").lower()
-            if "who is hiring" in title and "wants to be hired" not in title and "freelancer" not in title:
+            if self._matches_thread_title((hit.get("title") or "").lower()):
                 return hit.get("objectID")
         return None
 
@@ -189,11 +223,14 @@ class HNWhoIsHiringFetcher:
         plain = strip_html(comment["text"])
         if not plain:
             return None
-        if _CANDIDATE_PROFILE_RE.search(plain[:600]):
+        if not self._accept_comment(plain):
             return None
 
-        first_line = plain.splitlines()[0]
-        company, title = _parse_company_and_title(first_line)
+        company, title = _parse_company_and_title(self._header_line(plain))
+        if title == _ROLE_NOT_STATED_TITLE:
+            better_title = _bulleted_roles_title(plain)
+            if better_title:
+                title = better_title
 
         email = extract_email(plain)
         href_urls = extract_href_urls(comment["text"])
@@ -236,6 +273,9 @@ def _is_non_role_segment(segment: str) -> bool:
     )
 
 
+_ROLE_NOT_STATED_TITLE = "Role not stated in header — see description"
+
+
 def _parse_company_and_title(first_line: str) -> tuple[str, str]:
     parts = [p.strip() for p in first_line.split("|") if p.strip()]
     if len(parts) < 2:
@@ -253,4 +293,187 @@ def _parse_company_and_title(first_line: str) -> tuple[str, str]:
     # reintroduce exactly what was just filtered out (e.g. a location
     # string masquerading as a title), so use an honest placeholder
     # instead — the full text is preserved in description regardless.
-    return company, "Role not stated in header — see description"
+    # _parse_comment tries _bulleted_roles_title() as a recovery step
+    # whenever this exact placeholder comes back.
+    return company, _ROLE_NOT_STATED_TITLE
+
+
+# Some comments list several role names as body bullets under an "Open
+# roles:"/"Open now:" heading instead of naming one role on the header
+# line (real cases: Flywheel Motion "Open now:\n- Sr Agentic Engineer —
+# ...", Foxglove "Open roles:\n- Forward-Deployed Engineer (UK / Zurich,
+# Switzerland)"). Anchoring to that heading and only taking the CONTIGUOUS
+# run of bullets right after it is deliberate, not incidental — a bare
+# "line starts with -" scan produces false positives: a real comment
+# (Reef Technologies) has an unrelated perks/benefits list ("- Contribute
+# from wherever you like; we are fully remote") that reads exactly like a
+# bullet line but isn't a role name, and critically has no such heading
+# before it, so the heading anchor correctly excludes it.
+_OPEN_ROLES_HEADING_RE = re.compile(
+    r"(?im)^[ \t]*(open (?:now|roles?|positions?)|we'?re hiring|current openings?)[ \t]*:?[ \t]*$"
+)
+_BULLET_LINE_RE = re.compile(r"^[ \t]*[-•–][ \t]+(.+)$")
+_ROLE_NAME_SEPARATOR_RE = re.compile(r"\s+[—–]\s+")
+_MAX_ROLE_NAME_CHARS = 80
+_MAX_ROLE_NAME_WORDS = 12
+_MAX_ROLES_IN_TITLE = 5
+
+
+def _extract_bulleted_role_names(plain_body: str) -> list[str]:
+    heading_match = _OPEN_ROLES_HEADING_RE.search(plain_body)
+    if heading_match is None:
+        return []
+
+    names: list[str] = []
+    for line in plain_body[heading_match.end() :].splitlines():
+        bullet_match = _BULLET_LINE_RE.match(line)
+        if bullet_match is None:
+            if line.strip() == "":
+                continue
+            break  # first non-bullet, non-blank line ends the contiguous run
+        # "Role — description" and "Role (location)" are the two observed
+        # shapes; a bullet with neither separator is kept whole.
+        text = bullet_match.group(1).strip()
+        name = _ROLE_NAME_SEPARATOR_RE.split(text, maxsplit=1)[0]
+        if "(" in name:
+            name = name.split("(", 1)[0]
+        name = name.strip(" -:")
+        if not name or name.endswith(".") or len(name) > _MAX_ROLE_NAME_CHARS:
+            continue
+        if len(name.split()) > _MAX_ROLE_NAME_WORDS:
+            continue
+        names.append(name)
+    return names
+
+
+def _bulleted_roles_title(plain_body: str) -> str | None:
+    """None unless at least 2 plausible role names were found — a single
+    bullet is too weak a signal to trust over the honest placeholder."""
+    names = _extract_bulleted_role_names(plain_body)
+    if len(names) < 2:
+        return None
+    shown = names[:_MAX_ROLES_IN_TITLE]
+    title = "Multiple roles: " + ", ".join(shown)
+    if len(names) > _MAX_ROLES_IN_TITLE:
+        title += f" (+{len(names) - _MAX_ROLES_IN_TITLE} more)"
+    return title[:200]
+
+
+# --- Prose-listed roles, each carrying its own apply link ---
+#
+# A different, more tractable shape than the Ashby/Greenhouse/Lever/
+# Workable board expansion in ats_boards.py: instead of one shared
+# board-root link, the poster gives each bulleted role its OWN distinct
+# URL directly in the comment — nothing needs to be fetched or resolved,
+# since everything required is already in text JobScout has. Measured
+# live across 182 real "who is hiring" base comments (the ones not
+# already ATS-board-expanded): 8 used this shape — Kadoa, Mitte.ai,
+# G-Research, Stanford Research Computing, LiveMap, Preferred Networks,
+# SafetyWing, SwingVision — spanning self-hosted careers pages, generic
+# shortlink/form services (bit.ly, tally.so), and ATS platforms not
+# otherwise supported here (Talentio, Pinpoint, Deel). No per-platform
+# integration is needed because detection works on the comment's own
+# structure, not the target URL's domain.
+_ROLE_NAME_SEPARATOR_RE = re.compile(r"\s+[—–]\s+|\s+-\s+|:\s+")
+_MIN_BULLETED_ROLE_LINKS = 2
+_MAX_BULLETED_ROLE_LINKS = 20
+
+# LinkedIn/Twitter/GitHub links found right next to a bullet are virtually
+# always a PERSON's profile, not an application link — real case: a
+# "Leadership team" bullet list ("- VP of Product, ex Apple (linkedin...)")
+# matches the exact same bullet+URL shape as a genuine role list.
+_NON_APPLICATION_LINK_DOMAINS = ("linkedin.com", "twitter.com", "x.com", "github.com")
+
+
+def _is_application_link(url: str) -> bool:
+    netloc = urlsplit(url).netloc.lower()
+    return not any(netloc == d or netloc.endswith("." + d) for d in _NON_APPLICATION_LINK_DOMAINS)
+
+
+def _split_role_name(text: str) -> str | None:
+    match = _ROLE_NAME_SEPARATOR_RE.search(text)
+    name = text[: match.start()] if match else text
+    if "(" in name:
+        name = name.split("(", 1)[0]
+    name = name.strip()
+    if len(name) >= 2 and name.startswith("*") and name.endswith("*"):
+        # Markdown emphasis around just an entity name is how the one
+        # aggregator-style comment found in real data marks each bullet
+        # (a job board reposting *Company* — role — ... for several
+        # DIFFERENT companies' listings, not one company's own roles) — a
+        # real job title was never written this way in the corpus audited.
+        return None
+    name = name.strip(" -:")
+    if not name or name.endswith(".") or len(name) > _MAX_ROLE_NAME_CHARS:
+        return None
+    if len(name.split()) > _MAX_ROLE_NAME_WORDS:
+        return None
+    return name
+
+
+def _extract_bulleted_role_links(plain_body: str, href_urls: list[str] | None = None) -> list[tuple[str, str]]:
+    """Returns (role_name, url) pairs for bullets that have both a
+    plausible role name and their own application URL. Only the
+    CONTIGUOUS span from one bullet up to the next (or end of text) is
+    searched for that URL, so a URL belonging to a later, unrelated
+    paragraph is never misattributed to an earlier bullet.
+
+    `href_urls` (see extract_href_urls) recovers the real URL when HN's
+    own display has visually truncated it with "..." in the plain text —
+    real case: G-Research's comment showed
+    "https://www.gresearch.com/vacancies/performance-engineering-..." in
+    plain text, but the actual href was the complete "...manager/". Same
+    truncation extract_apply_url already has to work around."""
+    lines = plain_body.splitlines()
+    bullet_starts = [i for i, line in enumerate(lines) if _BULLET_LINE_RE.match(line)]
+
+    pairs: list[tuple[str, str]] = []
+    for position, start in enumerate(bullet_starts):
+        end = bullet_starts[position + 1] if position + 1 < len(bullet_starts) else len(lines)
+        span = "\n".join(lines[start:end])
+        bullet_text = _BULLET_LINE_RE.match(lines[start]).group(1)
+
+        name = _split_role_name(bullet_text)
+        if name is None:
+            continue
+
+        url_match = URL_RE.search(span)
+        if url_match is None:
+            continue
+        url = url_match.group(0).rstrip(".,;:")
+        for href in href_urls or ():
+            if href.startswith(url) and len(href) > len(url):
+                url = href
+                break
+        if not _is_application_link(url):
+            continue
+
+        pairs.append((name, url))
+    return pairs[:_MAX_BULLETED_ROLE_LINKS]
+
+
+def _bulleted_role_link_jobs(job: Job, href_urls: list[str] | None = None) -> list[Job]:
+    """Splits `job` into one Job per bulleted (role name, URL) pair found
+    in its description, reusing job's company/source metadata for all of
+    them. Returns [job] unchanged (never loses the posting) when fewer
+    than _MIN_BULLETED_ROLE_LINKS pairs are found — same "must never lose
+    a posting outright" contract _expand_bundled_board follows."""
+    pairs = _extract_bulleted_role_links(job.description, href_urls)
+    if len(pairs) < _MIN_BULLETED_ROLE_LINKS:
+        return [job]
+
+    return [
+        Job(
+            title=name,
+            company=job.company,
+            description=job.description,
+            url=url,
+            source=job.source,
+            posted_date=job.posted_date,
+            tags=job.tags,
+            location_text=job.location_text,
+            application_channel=ApplicationChannel.URL,
+            source_id=f"{job.source_id}:bullet:{index}",
+        )
+        for index, (name, url) in enumerate(pairs)
+    ]
