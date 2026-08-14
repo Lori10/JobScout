@@ -123,7 +123,17 @@ class AIRanker:
             score=score,
             skill_match=max(0, min(100, parsed.skill_match)),
             eligibility_confidence=eligibility_confidence_for(job.eligibility_bucket),
-            contract_type_guess=ContractTypeGuess(parsed.contract_type_guess),
+            # Same precedence as ranker.resolve_contract_type, with the AI's
+            # reading of the prose standing in for the heuristic scan: a
+            # source that states the engagement type as structured data
+            # (Himalayas employmentType, Lever commitment, ...) is more
+            # reliable than any inference from the description, so the
+            # fetcher's value wins whenever it isn't UNCLEAR.
+            contract_type_guess=(
+                job.contract_type_guess
+                if job.contract_type_guess != ContractTypeGuess.UNCLEAR
+                else ContractTypeGuess(parsed.contract_type_guess)
+            ),
             reasons=reasons,
             red_flags=red_flags,
             ranking_source=RankingSource.AI,

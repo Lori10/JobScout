@@ -2,10 +2,20 @@
 # punctuation-tolerant (see jobscout.filters.normalize_text). Edit freely —
 # pipeline.py reloads this on every run.
 
+# A source registered in fetchers.FETCHER_REGISTRY but MISSING from this
+# list is enabled by default (pipeline.py uses `sources.get(name, True)`),
+# so list every source explicitly rather than relying on omission to
+# disable one. Lever is not a source: it's an ATS expansion inside
+# hn_whoishiring, same as Ashby/Greenhouse.
 sources:
   remoteok: true
   remotive: true
   hn_whoishiring: true
+  hn_freelancer: true
+  himalayas: true
+  jobicy: true
+  weworkremotely: true
+  arbeitnow: true
 
 # "heuristic" (Phase 1) or "ai" (Phase 3). If "ai" is set but the active
 # provider's API key env var isn't set, or every AI call fails, pipeline.py
@@ -85,6 +95,19 @@ filters:
     - "core hours pst"
     - "north america only"
     - "must be based in north america"
+    # Full country names, for sources that state hiring locations as
+    # STRUCTURED allow-lists rather than prose (Himalayas
+    # locationRestrictions, Jobicy jobGeo). fetchers.common.
+    # format_location_restrictions renders those as "<country> only", which
+    # is what makes these match — "United States" on its own is just a
+    # mention. Only the countries that actually dominate real data are
+    # listed; the general rule ("the source named a country list and
+    # Albania isn't in it") can't be expressed as a phrase. See README
+    # known limitations.
+    - "united states only"
+    - "united kingdom only"
+    - "germany only"
+    - "australia only"
     - "us or canada only"
     - "us/canada only"
     - "canada only"

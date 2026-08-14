@@ -72,6 +72,25 @@ def guess_contract_type(text_norm: str) -> ContractTypeGuess:
     return ContractTypeGuess.UNCLEAR
 
 
+def resolve_contract_type(job: Job, text_norm: str) -> ContractTypeGuess:
+    """A source's own structured employment-type field beats a prose scan.
+
+    Phase 4 sources (Himalayas `employmentType`, We Work Remotely `<type>`,
+    Lever `categories.commitment`, Jobicy `jobType`, Arbeitnow `job_types`)
+    state the engagement type as data, and their fetchers set
+    Job.contract_type_guess directly via
+    fetchers.common.contract_type_from_label. guess_contract_type only runs
+    when the fetcher left it UNCLEAR — either because the source has no such
+    field (RemoteOK, Remotive, HN) or because its value was uninformative.
+
+    Shared by both scorers (score_job and ai_ranker) so the dashboard's
+    contract column means the same thing regardless of ranking_mode.
+    """
+    if job.contract_type_guess != ContractTypeGuess.UNCLEAR:
+        return job.contract_type_guess
+    return guess_contract_type(text_norm)
+
+
 def _keyword_group_score(text_norm: str, ranker_config: RankerConfig) -> tuple[float, list[str]]:
     """Each keyword group contributes its full weight if any of its phrases
     match (not per-phrase), normalized to a 0-40 point contribution so
@@ -161,7 +180,7 @@ def score_job(job: Job, ranker_config: RankerConfig, filter_config: FilterConfig
 
     eligibility_confidence = eligibility_confidence_for(job.eligibility_bucket)
 
-    contract_type_guess = guess_contract_type(text_norm)
+    contract_type_guess = resolve_contract_type(job, text_norm)
 
     return RankResult(
         score=score,

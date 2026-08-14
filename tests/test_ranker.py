@@ -4,7 +4,7 @@ import pytest
 
 from jobscout.config import FilterConfig, KeywordGroup, Profile, RankerConfig
 from jobscout.models import ContractTypeGuess, EligibilityBucket, Job, RankingSource
-from jobscout.ranker import guess_contract_type, score_job, trivial_rank_result
+from jobscout.ranker import guess_contract_type, resolve_contract_type, score_job, trivial_rank_result
 
 
 @pytest.fixture
@@ -204,3 +204,32 @@ def test_trivial_rank_result_for_irrelevant_job():
     result = trivial_rank_result(job)
     assert result.score == 0
     assert "irrelevant" in result.reasons[0]
+
+
+# --- Phase 4 groundwork: fetcher-supplied contract type wins ---
+
+
+def test_fetcher_set_contract_type_survives_scoring(ranker_config, filter_config, profile):
+    # Himalayas/WWR/Lever/Jobicy/Arbeitnow state this as structured data;
+    # score_job used to overwrite it unconditionally with the prose scan.
+    job = make_job(
+        description="A permanent position with our full time team.",
+        contract_type_guess=ContractTypeGuess.FREELANCE,
+    )
+    assert score_job(job, ranker_config, filter_config, profile).contract_type_guess == ContractTypeGuess.FREELANCE
+
+
+def test_prose_scan_still_runs_when_fetcher_left_it_unclear(ranker_config, filter_config, profile):
+    # Sources with no employment-type field (RemoteOK, Remotive, HN) are
+    # unaffected — this is the Phase 1 path.
+    job = make_job(description="This is a contractor role, invoice monthly.")
+    assert job.contract_type_guess == ContractTypeGuess.UNCLEAR
+    assert score_job(job, ranker_config, filter_config, profile).contract_type_guess == ContractTypeGuess.B2B
+
+
+def test_resolve_contract_type_precedence():
+    freelance_job = make_job(contract_type_guess=ContractTypeGuess.FREELANCE)
+    assert resolve_contract_type(freelance_job, "permanent position full time") == ContractTypeGuess.FREELANCE
+    unclear_job = make_job()
+    assert resolve_contract_type(unclear_job, "permanent position") == ContractTypeGuess.EMPLOYMENT
+    assert resolve_contract_type(unclear_job, "nothing relevant here") == ContractTypeGuess.UNCLEAR

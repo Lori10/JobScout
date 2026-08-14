@@ -114,3 +114,84 @@ def test_prefer_richer_description_and_merge_tags():
     assert len(result) == 1
     assert "longer" in result[0].description
     assert set(result[0].tags) == {"python", "llm", "rag"}
+
+
+# --- Phase 4 groundwork: source-assigned unique role ids ---
+
+
+def test_unique_role_id_source_keeps_similar_titles_from_same_company():
+    # A job-board API that assigns its own id/URL per role: two genuinely
+    # different roles at one company must survive, however similar the
+    # titles read. Same failure the Ashby/Greenhouse skip was added for.
+    jobs = [
+        make_job("Senior Python Engineer", "Acme", "https://himalayas.app/jobs/acme-senior-python-engineer", "himalayas"),
+        make_job("Senior Python Engineer II", "Acme", "https://himalayas.app/jobs/acme-senior-python-engineer-ii", "himalayas"),
+    ]
+    assert len(dedupe(jobs)) == 2
+
+
+def test_unique_role_id_source_still_dedupes_across_sources():
+    # The skip is same-source only: cross-source mirroring is exactly what
+    # fuzzy matching exists for and must keep working.
+    jobs = [
+        make_job("Senior LLM Engineer", "Acme Inc", "https://himalayas.app/jobs/acme-senior-llm-engineer", "himalayas"),
+        make_job("Sr. LLM Engineer", "Acme", "https://jobicy.com/jobs/999-sr-llm-engineer", "jobicy"),
+    ]
+    assert len(dedupe(jobs)) == 1
+
+
+def test_unique_role_id_source_still_dedupes_identical_urls():
+    # Exact normalized-URL matching runs before fuzzy and is unaffected.
+    jobs = [
+        make_job("Senior LLM Engineer", "Acme", "https://himalayas.app/jobs/acme-llm", "himalayas"),
+        make_job("Senior LLM Engineer", "Acme", "https://www.himalayas.app/jobs/acme-llm/", "himalayas"),
+    ]
+    assert len(dedupe(jobs)) == 1
+
+
+def test_weworkremotely_placeholder_companies_are_not_merged():
+    # WWR parses company out of a "Company: Role" RSS title; when the
+    # separator is missing both jobs share a placeholder company, which
+    # scores company_similarity 1.0 and would sail past the guard.
+    jobs = [
+        make_job("Backend Engineer", "(company not stated)", "https://weworkremotely.com/remote-jobs/a", "weworkremotely"),
+        make_job("Backend Engineer II", "(company not stated)", "https://weworkremotely.com/remote-jobs/b", "weworkremotely"),
+    ]
+    assert len(dedupe(jobs)) == 2
+
+
+def test_lever_expansion_roles_not_merged():
+    # Same guarantee Ashby/Greenhouse already had, extended to Lever.
+    jobs = [
+        make_job("Account Executive", "Acme", "https://jobs.lever.co/acme/aaa", "hn_whoishiring", source_id="42:lever:aaa"),
+        make_job("Account Executive - NYC", "Acme", "https://jobs.lever.co/acme/bbb", "hn_whoishiring", source_id="42:lever:bbb"),
+    ]
+    assert len(dedupe(jobs)) == 2
+
+
+def test_ordinary_sources_still_fuzzy_merge_unchanged():
+    # Phase 1 behavior must be untouched: remoteok/remotive are deliberately
+    # not in _UNIQUE_ROLE_ID_SOURCES.
+    jobs = [
+        make_job("Senior LLM Engineer", "Acme Inc", "https://remoteok.com/l/1", "remoteok"),
+        make_job("Sr. LLM Engineer", "Acme", "https://remoteok.com/l/2", "remoteok"),
+    ]
+    assert len(dedupe(jobs)) == 1
+
+
+def test_bulleted_role_link_jobs_not_merged():
+    # Same guarantee as the ATS-expansion markers, extended to
+    # hn_whoishiring._bulleted_role_link_jobs's ":bullet:" marker — several
+    # roles from one company, each with its own real URL, must not be
+    # fuzzy-merged into each other just for having similar titles.
+    jobs = [
+        make_job(
+            "Senior Full-Stack Engineer", "Mitte", "https://mitte.ai/careers/role/aaa", "hn_whoishiring",
+            source_id="42:bullet:0",
+        ),
+        make_job(
+            "Senior Backend Engineer", "Mitte", "https://mitte.ai/careers/role/bbb", "hn_whoishiring",
+            source_id="42:bullet:1",
+        ),
+    ]
+    assert len(dedupe(jobs)) == 2

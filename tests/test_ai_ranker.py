@@ -153,3 +153,19 @@ def test_summary_line_after_calls_reports_tokens_and_cost(ai_config, profile):
     assert "2 call(s)" in line
     assert "200 input" in line
     assert "100 output" in line
+
+
+def test_fetcher_set_contract_type_overrides_ai_guess(ai_config, profile):
+    # Same precedence as ranker.resolve_contract_type: a source that states
+    # the engagement type as structured data beats any reading of the prose,
+    # so the contract column means the same thing in both ranking modes.
+    provider = _FakeProvider([make_schema(contract_type_guess="employment")])
+    ranker = AIRanker(provider, ai_config, profile)
+    job = make_job(contract_type_guess=ContractTypeGuess.FREELANCE)
+    assert ranker.score_job(job).contract_type_guess == ContractTypeGuess.FREELANCE
+
+
+def test_ai_contract_type_used_when_fetcher_left_it_unclear(ai_config, profile):
+    provider = _FakeProvider([make_schema(contract_type_guess="b2b")])
+    ranker = AIRanker(provider, ai_config, profile)
+    assert ranker.score_job(make_job()).contract_type_guess == ContractTypeGuess.B2B

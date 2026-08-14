@@ -5,6 +5,7 @@ aggregator mirror)."""
 
 from __future__ import annotations
 
+import re
 from difflib import SequenceMatcher
 from urllib.parse import urlsplit, urlunsplit
 
@@ -45,24 +46,48 @@ def _fuzzy_key(job: Job) -> str:
     return " ".join([_company_key(job)] + title_tokens)
 
 
-def _is_ats_expansion_role(job: Job) -> bool:
-    """True if this Job's URL is an ATS-assigned unique per-role identifier
-    (set by ats_boards.posting_to_job's source_id convention:
-    f"{comment_id}:{platform}:{raw_id}") rather than a generic company
-    page. Real case: two distinct Starbridge roles, "Account Executive -
-    Mid Market" and "Account Executive - Mid Market | NYC" (different
-    Ashby posting ids/URLs), scored 0.95 fuzzy similarity - well above
+# Sources whose API assigns a stable, unique identifier (and URL) to every
+# individual role. Two records from such a source are already distinct by
+# construction, no matter how similar their titles read.
+#
+# Deliberately excludes remoteok/remotive: adding them would change Phase 1
+# behavior with no evidence it's needed.
+_UNIQUE_ROLE_ID_SOURCES = frozenset({"himalayas", "jobicy", "arbeitnow", "weworkremotely"})
+
+# ats_boards.posting_to_job stamps source_id as f"{comment_id}:{platform}:{raw_id}".
+# hn_whoishiring._bulleted_role_link_jobs stamps f"{comment_id}:bullet:{index}"
+# for the prose-listed-roles-with-own-links case, which has the identical
+# "several distinct roles from one company, don't fuzzy-merge them" need.
+_ATS_EXPANSION_SOURCE_ID_RE = re.compile(r":(?:ashby|greenhouse|lever|workable|bullet):")
+
+
+def _has_source_assigned_role_id(job: Job) -> bool:
+    """True if this Job carries a source-assigned unique per-role identity
+    rather than a generic company page — either an ATS expansion marker in
+    source_id (set by ats_boards.posting_to_job) or membership in
+    _UNIQUE_ROLE_ID_SOURCES.
+
+    Real case: two distinct Starbridge roles, "Account Executive - Mid
+    Market" and "Account Executive - Mid Market | NYC" (different Ashby
+    posting ids/URLs), scored 0.95 fuzzy similarity - well above
     FUZZY_THRESHOLD - and got wrongly merged into one Job. Fuzzy title
-    matching exists to catch the same posting mirrored under different
-    URLs; it has nothing ambiguous to resolve between two ATS-expansion
-    roles, which already have distinct, source-confirmed identities no
-    matter how similar their titles look."""
-    source_id = job.source_id or ""
-    return ":ashby:" in source_id or ":greenhouse:" in source_id
+    matching exists to catch the same posting mirrored under different URLs;
+    it has nothing ambiguous to resolve between two roles that already have
+    distinct, source-confirmed identities no matter how similar their titles
+    look. One company legitimately posting several near-identically-titled
+    roles is common on every Phase 4 job-board API, not just ATS
+    expansions."""
+    if _ATS_EXPANSION_SOURCE_ID_RE.search(job.source_id or ""):
+        return True
+    return job.source in _UNIQUE_ROLE_ID_SOURCES
 
 
 def _fuzzy_similarity(a: Job, b: Job) -> float:
-    if _is_ats_expansion_role(a) and _is_ats_expansion_role(b):
+    # Same-source only: fuzzy matching exists precisely to catch one posting
+    # mirrored ACROSS sources under different URLs, so a unique-role-id
+    # source must never lose that. Behavior-preserving for the ATS case,
+    # where both expansion roles are always source="hn_whoishiring".
+    if a.source == b.source and _has_source_assigned_role_id(a) and _has_source_assigned_role_id(b):
         return 0.0
 
     key_a, key_b = _fuzzy_key(a), _fuzzy_key(b)
