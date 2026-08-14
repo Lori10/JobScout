@@ -5,8 +5,7 @@ Albania. Fetches postings from multiple sources, filters out ones that
 aren't legally/practically doable from Albania, ranks the rest against a
 hardcoded skills/experience profile, and produces a CLI summary, a static
 HTML report, and a web dashboard. See [PLAN.md](PLAN.md) for the full
-5-phase roadmap — **this repo currently implements Phases 1, 2, and 3, plus
-a slice of Phase 4** (Ashby/Greenhouse bundled-comment expansion).
+5-phase roadmap — **this repo currently implements Phases 1 through 4**.
 
 ## Status
 
@@ -26,10 +25,31 @@ twice in the same mode, with retry/backoff, description truncation,
 per-run cost logging, automatic fallback to the heuristic scorer, and a
 per-job "Re-rank with AI" dashboard action.
 
-Phase 4: partially done. HN "who is hiring" comments that link to a bare
-Ashby or Greenhouse board (rather than one specific role) are expanded
-into one `Job` per listed role via that ATS's public API — see known
-limitations below. No new fetchers (RSS/other job boards) yet.
+Phase 4: done. Five new sources on top of Phase 1's three — **Himalayas**,
+**Jobicy**, **We Work Remotely** (RSS), **Arbeitnow** (German/EU market),
+and the HN **"Freelancer? Seeking freelancer?"** thread — plus **Lever**
+added to the ATS bundle expansion alongside Ashby and Greenhouse. All are
+free and unauthenticated; no API keys are needed for any of them.
+
+The selection is driven by `profile.yaml`'s
+`work_setup.preferred: "B2B contract via own registered Albanian company"`.
+Each new source states the engagement type as a **structured field**
+(Himalayas `employmentType`, WWR `<type>`, Lever `categories.commitment`,
+Jobicy `jobType`, Arbeitnow `job_types`), which the fetchers map onto
+`Job.contract_type_guess` — so the dashboard's contract column is real
+source data rather than a guess from description prose, and freelance/B2B
+work is filterable instead of buried. Several also state hiring locations
+as structured allow-lists, which feeds Stage 1 eligibility directly.
+
+Sources considered and **rejected**: `freelancermap.de` and `freelance.de`
+(both named in earlier drafts of PLAN.md) have no public API — page 2+ of
+any search is gated behind account registration, and the
+`freelance-o-mat.de` RSS aggregator that used to mirror freelancermap now
+returns HTTP 410. Only HTML scraping behind a login would work. Upwork,
+Malt, Toptal, Contra and Freelancer.com are OAuth-gated or prohibit
+scraping. Adzuna has a usable free API but requires registering for an
+`app_id`/`app_key`, which every current source avoids. Arbeitnow covers the
+German market through a real API instead.
 
 ## Install
 
@@ -293,14 +313,90 @@ still counts as a match.
   several role names with separate application links written directly in
   its own prose (e.g. `"Multiple positions in United States - WORK FROM
   HOME"` followed by 9 role names each with its own link, none going
-  through Ashby/Greenhouse) still becomes one `Job` record judged on the
+  through a supported ATS) still becomes one `Job` record judged on the
   whole comment's text — if none of the listed role names happen to
   contain a configured AI/LLM keyword (even if one individually would be
-  relevant), the entire bundle is marked `irrelevant`. Extending this to
-  other ATS platforms (Lever, etc.) is straightforward following the same
-  pattern in `ats_boards.py`; parsing arbitrary per-role links out of free
-  prose (rather than one ATS board API call) is a fundamentally harder,
-  not-yet-attempted problem. See [PLAN.md](PLAN.md) Phase 4 for scope.
+  relevant), the entire bundle is marked `irrelevant`. Parsing arbitrary
+  per-role links out of free prose (rather than one ATS board API call) is
+  a fundamentally harder, not-yet-attempted problem.
+- **Lever** (bundled-comment expansion, same mechanism as above) — its API
+  returns a **bare JSON list**, with no `{"jobs": [...]}` wrapper, unlike
+  both other platforms, and `createdAt` is unix **milliseconds** where
+  Ashby/Greenhouse use ISO strings. Lever splits a posting's prose across
+  several fields and none is reliably present (on a real 81-role board,
+  `descriptionPlain` was missing on 4 and `additionalPlain` on 2), so the
+  description is assembled from `descriptionPlain` + the `lists`
+  Responsibilities/Requirements bullets + `additionalPlain` — dropping
+  `lists` would discard exactly the skill text the ranker needs. An empty
+  board is a valid response (`api.lever.co/v0/postings/lever` returns
+  `[]`) and falls back to the original single-Job behavior.
+- **Himalayas** — the API **clamps `limit` to 20 server-side** regardless
+  of what you request (`limit=100` returns 20 and echoes `"limit": 20`),
+  so paging steps by 20 via `offset`. `totalCount` is ~99,000, far past
+  anything worth fetching; `_MAX_PAGES = 15` makes this a "most recent
+  ~300 postings" window, which is meaningful because results are sorted
+  newest-first. `Job.url` uses `guid` rather than `applicationLink` — the
+  latter is sometimes a third-party ATS URL, which would make `dedup_key`
+  depend on where a company happens to host its board. The API can repeat
+  a posting across pages when new jobs are published mid-fetch (the offset
+  window shifts), so the fetcher dedupes on `guid` before returning.
+- **Jobicy** — `count` is **clamped to 100 server-side** (asking for 200
+  or 500 returns 100) and there is no offset/page parameter, so **100
+  most-recent postings per run is a hard ceiling for this source**, not a
+  self-imposed cap. Their API response carries a `friendlyNotice` asking
+  that Jobicy be credited with a direct link to the source; `Job.url` is
+  always the jobicy.com posting page. In practice this source is almost
+  entirely full-time employment (a live sample of 100 was 100%
+  `jobType: ["Full-Time"]`), so it adds volume rather than contract work.
+  `jobIndustry` values arrive HTML-escaped and are unescaped here.
+- **We Work Remotely** — RSS, not JSON, parsed with stdlib
+  `xml.etree.ElementTree` (the project has no RSS/XML dependency and
+  doesn't need one). `<title>` packs company and role into one string as
+  `"Company: Role"`; splitting on the first `": "` is best-effort — a
+  role whose own title contains `": "` before the separator would split
+  wrong, and a title with no separator at all falls back to a fixed
+  `"(company not stated)"` placeholder. That placeholder is exactly why
+  `weworkremotely` is listed in `dedupe._UNIQUE_ROLE_ID_SOURCES`: two jobs
+  sharing it would otherwise score `company_similarity` 1.0 and be
+  fuzzy-merged. `<country>`, `<state>` and `<skills>` are frequently
+  present but **empty** rather than absent. Three feeds are read (site-wide
+  plus the programming and devops category feeds) and deduped by `<guid>`,
+  since the site-wide feed alone drops older engineering roles.
+- **Arbeitnow** — **expect a low relevant yield, by design.** This is a
+  general German job board, not a tech/remote one: measured live, only
+  ~5% of postings are remote and the large majority are non-engineering,
+  so Stage 2's relevance filter correctly discards most of what's fetched
+  (a real run: 559 fetched, 34 landing in eligible-and-relevant). That is
+  the pipeline working, not something to "fix" by loosening the filter.
+  Its structured `remote` boolean is rendered into `location_text` as
+  `"Berlin, vor Ort"` / `"Berlin, Remote"` — Stage 1 reads text, so a bare
+  `"Berlin"` would otherwise pass as eligible when it's a commute-to-Berlin
+  role; both markers are already in `config.yaml`'s vocabulary. `job_types`
+  mixes engagement types with seniority labels (`"berufserfahren"`,
+  `"Mid"`, `"berufseinstieg"`) and is often empty, so `contract_type_guess`
+  is `unclear` for many postings — the correct answer, since those labels
+  say nothing about the engagement. The API's `url` field is sometimes the
+  company's own homepage rather than the Arbeitnow job page; it is used
+  as-is anyway because across 576 real records its normalized form was
+  exactly as unique as `slug` (559 distinct each), and the canonical
+  Arbeitnow URL cannot be reconstructed for a genuinely external listing
+  (`/jobs/companies/{company}/{slug}` returns 410 for those, which would
+  hand you a dead link instead of a working one).
+- **HN "Freelancer? Seeking freelancer?"** — **this source will usually
+  return zero jobs, and that is the normal case.** The thread's convention
+  is to lead with either `SEEKING WORK` (an individual advertising
+  themselves — not a job) or `SEEKING FREELANCER` (a client with a project
+  — a job), and only the latter is kept. Measured live across the five
+  threads from April–August 2026: 102 top-level comments, of which 95 were
+  `SEEKING WORK`, 5 were unmarked self-profiles, and exactly **1** was
+  `SEEKING FREELANCER` — roughly one usable posting every five months. It
+  is included because it is a ~40-line subclass of the existing
+  `hn_whoishiring` fetcher (inheriting the Algolia fetch, concurrent board
+  resolution and ATS bundle expansion unchanged) and because a client
+  posting a real project is the single best match for a B2B contract
+  profile — not because it will move the numbers. Header parsing inherits
+  every caveat of the "Who is hiring?" fetcher above, after stripping the
+  leading `SEEKING FREELANCER` marker.
 - **All sources** — the eligibility filter works by matching curated
   phrases (see `config.yaml`), not by NLP/entity extraction. It reliably
   catches explicit statements like `"US citizens only"` or `"visa
@@ -310,6 +406,24 @@ still counts as a match.
   also doesn't say "only") will not be caught and needs manual review.
   When in doubt, check the "Reasons"/"Red flags" columns in `report.html`
   before applying.
+- **Structured hiring-location allow-lists are only partly handled.**
+  Himalayas (`locationRestrictions: ["United States"]`) and Jobicy
+  (`jobGeo: "USA"`) state where a company will hire as structured data,
+  but as bare country names — and a bare name is indistinguishable from a
+  passing mention to a phrase matcher. Left alone, that put 79 of 227
+  Himalayas postings and 35 of 100 Jobicy postings in the `eligible`
+  bucket while the source itself said US-only.
+  `fetchers.common.format_location_restrictions` renders these as
+  `"<country> only"`, which both states what the field actually asserts
+  and lands in vocabulary `config.yaml` already has (`"USA only"` is an
+  exclude phrase, `"Europe only"` a needs-review phrase). **This does not
+  fully solve it**: an allow-list naming any of the ~40 other countries
+  seen in real data still needs a matching `"<country> only"` phrase in
+  `config.yaml` to be caught, and only the four that dominate live data
+  are listed there. The general rule — "the source named an explicit
+  country list and Albania isn't in it" — is structural and can't be
+  expressed as a phrase; catching it properly would need a new Stage 1
+  rule that understands allow-lists, which is not built.
 - **"No C2C" is intentionally not an exclude phrase** — it's a
   US-contracting-structure term (corp-to-corp) rather than an
   Albania-eligibility signal on its own, so it's not treated as

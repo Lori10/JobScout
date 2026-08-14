@@ -62,7 +62,7 @@ classification generalizes far better. A listing flagged this way scores
 0 with a red flag noting the AI's judgment, but stays visible (not
 silently dropped) so it can be audited like any other stored job.
 
-## Phase 4 (partially built) — More sources
+## Phase 4 (built) — More sources
 
 **Built:** expanding bundled multi-role HN "Who is hiring" comments (one
 comment advertising several distinct roles, each with its own application
@@ -80,17 +80,44 @@ behavior on any API failure, empty result, or unsupported platform — this
 must never lose a posting outright. Capped at 40 roles per board so one
 large company's board doesn't flood the pipeline.
 
-**Not yet built:** Lever and other ATS platforms (also seen in real data —
-`jobs.lever.co` links currently still get treated as a single bundled Job)
-would follow the identical pattern in `ats_boards.py` — same registry-style
-extension (a `_fetch_lever`/`_lever_posting_to_job` pair plus a
-`detect_board` regex, mirroring Ashby/Greenhouse). Also not yet built:
-additional fetchers dropped into the existing `fetchers/` registry with no
-changes to `pipeline.py`: We Work Remotely (RSS), Jobicy (API), Arbeitnow
-(API), Himalayas (API/RSS), and experimental German freelance marketplaces
-(freelancermap.de, freelance.de). These are exactly where the German-
-language positive-signal phrases already in `config.yaml` start mattering
-most, since Phase 1's three sources are almost entirely English-language.
+**Also built — Lever**, completing the ATS expansion above via the same
+registry-style pattern (a `_fetch_lever`/`_lever_posting_to_job` pair plus
+a `detect_board` regex, mirroring Ashby/Greenhouse). Its API differs in two
+ways worth knowing: it returns a bare JSON list rather than a `{"jobs":
+[...]}` wrapper, and `createdAt` is unix milliseconds rather than an ISO
+string.
+
+**Also built — five new fetchers**, each dropped into the existing
+`fetchers/` registry with no changes to `pipeline.py`: **Himalayas**,
+**Jobicy**, **We Work Remotely** (RSS), **Arbeitnow**, and the HN
+**"Freelancer? Seeking freelancer?"** thread. Arbeitnow is where the
+German-language phrases already in `config.yaml` start mattering, since
+Phase 1's three sources are almost entirely English-language.
+
+The selection was driven by `profile.yaml`'s
+`work_setup.preferred: "B2B contract via own registered Albanian company"`:
+every one of these states the engagement type as a **structured field**
+rather than prose to be inferred from, so `Job.contract_type_guess` becomes
+real source data and freelance/B2B work is filterable rather than buried.
+Supporting that required three groundwork changes shared by all of them —
+RFC-822/unix date parsing and a structured-employment-type mapper in
+`fetchers/common.py`, `ranker.resolve_contract_type` so a fetcher-set value
+is no longer overwritten by the prose scan, and generalizing `dedupe.py`'s
+ATS-only fuzzy-merge escape hatch into `_has_source_assigned_role_id` (any
+source whose API assigns a unique id per role hits the same problem the
+Ashby/Greenhouse skip was added for).
+
+**Deliberately not built:** the German freelance marketplaces
+(freelancermap.de, freelance.de) named in earlier drafts of this plan.
+Neither has a public API — page 2+ of any search is gated behind account
+registration, and the `freelance-o-mat.de` RSS aggregator that mirrored
+freelancermap now returns HTTP 410. Only HTML scraping behind a login would
+work, which no other source here requires. Upwork, Malt, Toptal, Contra and
+Freelancer.com were rejected for the same reason (OAuth-gated or
+scraping-prohibited); Adzuna has a usable free API but needs a registered
+`app_id`/`app_key`. Arbeitnow covers the German market through a real API
+instead. See README's "Known limitations per source" for what each source
+does and doesn't catch.
 
 ## Phase 5 (later) — Research briefs and outreach drafting
 
