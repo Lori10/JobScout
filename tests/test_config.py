@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from jobscout.config import AIConfig, load_config
+from jobscout.config import AIConfig, BoardRegistryConfig, GitHubListsConfig, load_config
 
 
 def _write_config(tmp_path, data: dict) -> str:
@@ -51,3 +51,44 @@ def test_heuristic_ranking_mode_is_default(tmp_path):
     path = _write_config(tmp_path, {})
     config = load_config(path)
     assert config.ranking_mode == "heuristic"
+
+
+def test_board_registry_config_defaults_when_no_block(tmp_path):
+    path = _write_config(tmp_path, {})
+    config = load_config(path)
+    assert config.board_registry == BoardRegistryConfig()
+    assert config.board_registry.enabled is True
+    assert config.board_registry.max_workers == 15
+
+
+def test_board_registry_block_parsed_from_yaml(tmp_path):
+    path = _write_config(tmp_path, {"board_registry": {"enabled": False, "max_workers": 5}})
+    config = load_config(path)
+    assert config.board_registry.enabled is False
+    assert config.board_registry.max_workers == 5
+
+
+def test_github_lists_config_defaults_when_no_block(tmp_path):
+    path = _write_config(tmp_path, {})
+    config = load_config(path)
+    assert config.github_lists == GitHubListsConfig()
+    assert config.github_lists.enabled is True
+    assert config.github_lists.scan_interval_days == 7
+    assert "established-remote" in config.github_lists.sources
+
+
+def test_github_lists_block_parsed_from_yaml(tmp_path):
+    path = _write_config(
+        tmp_path,
+        {
+            "github_lists": {
+                "enabled": False,
+                "scan_interval_days": 14,
+                "sources": {"custom-list": "https://example.com/README.md"},
+            }
+        },
+    )
+    config = load_config(path)
+    assert config.github_lists.enabled is False
+    assert config.github_lists.scan_interval_days == 14
+    assert config.github_lists.sources == {"custom-list": "https://example.com/README.md"}
