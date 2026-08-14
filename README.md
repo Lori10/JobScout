@@ -57,6 +57,51 @@ usable free API but requires registering for an `app_id`/`app_key`, which
 every current source avoids. Arbeitnow covers the German market through a
 real API instead.
 
+[speedyapply/JobSpy](https://github.com/speedyapply/JobSpy) doesn't change
+the LinkedIn/Indeed calculus above — it works around the lack of a public
+API by scraping HTML instead, which is a different and riskier integration
+shape than every source actually built here. Its own docs say "all of the
+job boards are aggressive with blocking," recommend proxy rotation, and
+note LinkedIn typically rate-limits by page 10 on a single IP. There's real
+ToS-enforcement precedent, too: *hiQ v. LinkedIn* ended in a permanent
+injunction and a $500k judgment against a scraping company — the CFAA
+doesn't bar scraping public data, but the breach-of-contract/ToS theory
+still won. Not worth the risk for a personal pipeline, especially since
+most of JobSpy's non-LinkedIn/Indeed coverage (Naukri/India,
+Bdjobs/Bangladesh, Bayt/Middle East, ZipRecruiter US/Canada-only) doesn't
+match this project's target profile anyway.
+
+[maurobonfietti/remote-jobs](https://github.com/maurobonfietti/remote-jobs)
+was also considered: a GitHub README auto-updated daily with ~1,500 job
+rows, technically cheap to consume (same "fetch one raw file" pattern as
+`github_lists.py`'s `established-remote` source). Rejected anyway — it has
+no LICENSE file and no stated data source, and turned out (checked via the
+raw file) to be silently mirroring a third-party aggregator,
+opentoworkremote.com, through UTM-tagged redirect links with no visible
+attribution or permission. It's also a single hobby project ("star to keep
+me motivated"), and a live sample of ~50 rows was overwhelmingly
+non-technical (sales, marketing, ops, nursing) with only occasional AI/ML
+titles — a relevance-yield problem like Arbeitnow's, minus Arbeitnow's
+redeeming factor of being an official regional API with clear provenance.
+
+[freehire](https://github.com/strelov1/freehire) (freehire.me) is a
+**parked candidate, not a rejection** — it's architecturally a much better
+fit than the two above. Verified directly rather than trusting the README:
+MIT-licensed, and `GET https://freehire.me/api/v1/jobs` is a real, live,
+keyless endpoint returning clean structured JSON (`title`, `company`,
+`countries[]`, `regions[]`, `enrichment.employment_type`, `skills[]`,
+`posted_at`) sourced from 80+ ATS platforms (Workday, Greenhouse, Lever,
+Ashby, etc.) rather than scraping restricted sites directly. Its
+`countries`/`regions` arrays would even solve the "structured hiring-
+location allow-list" gap called out below for Himalayas/Jobicy. But the
+repo is only ~2 months old (created 2026-06), single-maintainer, and every
+filter parameter tried against the live public endpoint (`q`, `title`,
+`search`, `keyword`, `countries`, `skills`) returned an identical
+unfiltered 5.5M-row result set — either real filtering needs a mechanism
+not found during this check, or the public endpoint doesn't support it
+yet. Not usable as a fetcher until that's resolved and the project has more
+of a track record; worth checking again in a few months.
+
 Phase 4.5: done. A persistent **ATS board registry** (see below) that
 re-polls every Ashby/Greenhouse/Lever/Workable board ever discovered —
 via HN comments or a public GitHub company list — on every future run,
