@@ -50,6 +50,23 @@ class AIConfig:
     min_seconds_between_calls: float = 4.5
 
 
+@dataclass
+class BoardRegistryConfig:
+    enabled: bool = True
+    max_workers: int = 15
+
+
+@dataclass
+class GitHubListsConfig:
+    enabled: bool = True
+    scan_interval_days: int = 7
+    sources: dict[str, str] = field(
+        default_factory=lambda: {
+            "established-remote": "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md",
+        }
+    )
+
+
 _VALID_RANKING_MODES = {"heuristic", "ai"}
 
 
@@ -61,6 +78,8 @@ class AppConfig:
     filters: FilterConfig = field(default_factory=FilterConfig)
     ranker: RankerConfig = field(default_factory=RankerConfig)
     ai: AIConfig = field(default_factory=AIConfig)
+    board_registry: BoardRegistryConfig = field(default_factory=BoardRegistryConfig)
+    github_lists: GitHubListsConfig = field(default_factory=GitHubListsConfig)
 
 
 @dataclass
@@ -88,6 +107,9 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
         raise ValueError(f"ranking_mode must be one of {sorted(_VALID_RANKING_MODES)}, got {ranking_mode!r}")
 
     ai_raw = raw.get("ai", {})
+    board_registry_raw = raw.get("board_registry", {})
+    github_lists_raw = raw.get("github_lists", {})
+    default_github_lists = GitHubListsConfig()
 
     return AppConfig(
         sources=dict(raw.get("sources", {})),
@@ -116,6 +138,15 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
             max_description_chars=int(ai_raw.get("max_description_chars", 4000)),
             max_retries=int(ai_raw.get("max_retries", 3)),
             min_seconds_between_calls=float(ai_raw.get("min_seconds_between_calls", 4.5)),
+        ),
+        board_registry=BoardRegistryConfig(
+            enabled=bool(board_registry_raw.get("enabled", True)),
+            max_workers=int(board_registry_raw.get("max_workers", 15)),
+        ),
+        github_lists=GitHubListsConfig(
+            enabled=bool(github_lists_raw.get("enabled", True)),
+            scan_interval_days=int(github_lists_raw.get("scan_interval_days", 7)),
+            sources=dict(github_lists_raw.get("sources", default_github_lists.sources)),
         ),
     )
 

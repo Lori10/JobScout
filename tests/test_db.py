@@ -1,8 +1,21 @@
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from jobscout.db import get_job_by_dedup_key, get_jobs, init_db, set_status, upsert_job
+from jobscout.db import (
+    get_job_by_dedup_key,
+    get_jobs,
+    get_known_boards,
+    get_last_scan,
+    init_db,
+    record_board_poll,
+    record_scan,
+    set_board_enabled,
+    set_status,
+    upsert_job,
+    upsert_known_board,
+)
 from jobscout.models import EligibilityBucket, Job, JobStatus, RankingSource, SeniorityFit
 
 
@@ -147,3 +160,76 @@ def test_init_db_migrates_seniority_fit_column_onto_pre_phase3_db(tmp_path):
     assert len(jobs) == 1
     assert jobs[0].title == "Old Job"
     assert jobs[0].seniority_fit is None
+
+
+def test_upsert_known_board_insert_and_get(conn):
+    upsert_known_board(
+        conn, platform="ashby", board_slug="starbridge", company="Starbridge", discovered_via="hn_whoishiring", discovered_url="https://jobs.ashbyhq.com/starbridge"
+    )
+    boards = get_known_boards(conn)
+    assert len(boards) == 1
+    assert boards[0].platform == "ashby"
+    assert boards[0].board_slug == "starbridge"
+    assert boards[0].company == "Starbridge"
+    assert boards[0].enabled is True
+
+
+def test_upsert_known_board_first_seen_at_not_clobbered(conn):
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    first_seen = get_known_boards(conn)[0].first_seen_at
+
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company="Starbridge Inc", discovered_via="github:established-remote", discovered_url=None)
+    board = get_known_boards(conn)[0]
+    assert board.first_seen_at == first_seen
+    assert board.company == "Starbridge Inc"
+    assert board.discovered_via == "github:established-remote"
+
+
+def test_upsert_known_board_enabled_not_clobbered_by_rediscovery(conn):
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    set_board_enabled(conn, platform="ashby", board_slug="starbridge", enabled=False)
+
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    board = get_known_boards(conn, enabled_only=False)[0]
+    assert board.enabled is False
+
+
+def test_upsert_known_board_unique_constraint(conn):
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    assert len(get_known_boards(conn, enabled_only=False)) == 1
+
+
+def test_get_known_boards_enabled_only_filter(conn):
+    upsert_known_board(conn, platform="ashby", board_slug="a", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(conn, platform="ashby", board_slug="b", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    set_board_enabled(conn, platform="ashby", board_slug="b", enabled=False)
+
+    assert {b.board_slug for b in get_known_boards(conn, enabled_only=True)} == {"a"}
+    assert {b.board_slug for b in get_known_boards(conn, enabled_only=False)} == {"a", "b"}
+
+
+def test_record_board_poll_updates_only_poll_fields(conn):
+    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company="Starbridge", discovered_via="hn_whoishiring", discovered_url=None)
+    record_board_poll(conn, platform="ashby", board_slug="starbridge", result_count=5)
+
+    board = get_known_boards(conn)[0]
+    assert board.last_poll_result_count == 5
+    assert board.last_polled_at is not None
+    assert board.company == "Starbridge"
+    assert board.discovered_via == "hn_whoishiring"
+
+
+def test_github_list_scan_get_and_record_roundtrip(conn):
+    assert get_last_scan(conn, "established-remote") is None
+
+    when = datetime.now(timezone.utc) - timedelta(days=1)
+    record_scan(conn, "established-remote", when)
+    stored = get_last_scan(conn, "established-remote")
+    assert stored is not None
+    assert abs((stored - when).total_seconds()) < 1
+
+    later = datetime.now(timezone.utc)
+    record_scan(conn, "established-remote", later)
+    stored_again = get_last_scan(conn, "established-remote")
+    assert abs((stored_again - later).total_seconds()) < 1

@@ -1,7 +1,8 @@
-"""Plain stdlib sqlite3 storage. Single-user local tool, one table, no
-joins — an ORM/migration framework would add weight for zero relational
-benefit at this scale. Wrapped behind init_db/upsert_job/get_jobs/set_status
-so a future phase could swap the backend without touching callers.
+"""Plain stdlib sqlite3 storage. Single-user local tool, no joins — an
+ORM/migration framework would add weight for zero relational benefit at
+this scale. Wrapped behind init_db/upsert_job/get_jobs/set_status (plus
+the known_boards equivalents) so a future phase could swap the backend
+without touching callers.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,6 +59,27 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score);
 CREATE INDEX IF NOT EXISTS idx_jobs_bucket ON jobs(eligibility_bucket);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+CREATE TABLE IF NOT EXISTS known_boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    board_slug TEXT NOT NULL,
+    company TEXT,
+    discovered_via TEXT NOT NULL,
+    discovered_url TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    last_polled_at TEXT,
+    last_poll_result_count INTEGER,
+    UNIQUE(platform, board_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_known_boards_enabled ON known_boards(enabled);
+
+CREATE TABLE IF NOT EXISTS github_list_scans (
+    source_name TEXT PRIMARY KEY,
+    last_scanned_at TEXT NOT NULL
+);
 """
 
 # Columns updated on a re-fetch. status and first_seen_at are deliberately
@@ -94,6 +117,31 @@ _UPDATE_COLUMNS = [
 _MIGRATIONS: list[tuple[str, str]] = [
     ("seniority_fit", "ALTER TABLE jobs ADD COLUMN seniority_fit TEXT"),
 ]
+
+# Columns updated when a known board is rediscovered. enabled and
+# first_seen_at are user-owned/insert-only (same reasoning as jobs.status
+# and jobs.first_seen_at); last_polled_at and last_poll_result_count belong
+# to the poller's write path (record_board_poll), not discovery.
+_KNOWN_BOARD_UPDATE_COLUMNS = [
+    "company",
+    "discovered_via",
+    "discovered_url",
+    "last_seen_at",
+]
+
+
+@dataclass
+class KnownBoard:
+    platform: str
+    board_slug: str
+    company: str | None
+    discovered_via: str
+    discovered_url: str | None
+    enabled: bool
+    first_seen_at: datetime | None
+    last_seen_at: datetime | None
+    last_polled_at: datetime | None
+    last_poll_result_count: int | None
 
 
 def init_db(path: str | Path = "data/jobscout.db") -> sqlite3.Connection:
@@ -220,4 +268,101 @@ def get_job_by_dedup_key(conn: sqlite3.Connection, dedup_key: str) -> Job | None
 
 def set_status(conn: sqlite3.Connection, dedup_key: str, status: JobStatus) -> None:
     conn.execute("UPDATE jobs SET status = ? WHERE dedup_key = ?", (status.value, dedup_key))
+    conn.commit()
+
+
+def _row_to_known_board(row: sqlite3.Row) -> KnownBoard:
+    return KnownBoard(
+        platform=row["platform"],
+        board_slug=row["board_slug"],
+        company=row["company"],
+        discovered_via=row["discovered_via"],
+        discovered_url=row["discovered_url"],
+        enabled=bool(row["enabled"]),
+        first_seen_at=_parse_iso(row["first_seen_at"]),
+        last_seen_at=_parse_iso(row["last_seen_at"]),
+        last_polled_at=_parse_iso(row["last_polled_at"]),
+        last_poll_result_count=row["last_poll_result_count"],
+    )
+
+
+def upsert_known_board(
+    conn: sqlite3.Connection,
+    *,
+    platform: str,
+    board_slug: str,
+    company: str | None,
+    discovered_via: str,
+    discovered_url: str | None,
+) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    row = {
+        "platform": platform,
+        "board_slug": board_slug,
+        "company": company,
+        "discovered_via": discovered_via,
+        "discovered_url": discovered_url,
+        "enabled": 1,
+        "first_seen_at": now,
+        "last_seen_at": now,
+    }
+    columns = list(row.keys())
+    placeholders = ", ".join(f":{c}" for c in columns)
+    update_clause = ", ".join(f"{c} = excluded.{c}" for c in _KNOWN_BOARD_UPDATE_COLUMNS)
+    sql = (
+        f"INSERT INTO known_boards ({', '.join(columns)}) VALUES ({placeholders}) "
+        f"ON CONFLICT(platform, board_slug) DO UPDATE SET {update_clause}"
+    )
+    conn.execute(sql, row)
+    conn.commit()
+
+
+def get_known_boards(
+    conn: sqlite3.Connection,
+    *,
+    enabled_only: bool = True,
+    order_by: str = "platform, board_slug",
+) -> list[KnownBoard]:
+    if not _SAFE_ORDER_BY_RE.match(order_by.strip()):
+        raise ValueError(f"unsafe order_by clause: {order_by!r}")
+    sql = "SELECT * FROM known_boards"
+    if enabled_only:
+        sql += " WHERE enabled = 1"
+    sql += f" ORDER BY {order_by}"
+    cursor = conn.execute(sql)
+    return [_row_to_known_board(row) for row in cursor.fetchall()]
+
+
+def record_board_poll(
+    conn: sqlite3.Connection, *, platform: str, board_slug: str, result_count: int
+) -> None:
+    conn.execute(
+        "UPDATE known_boards SET last_polled_at = ?, last_poll_result_count = ? "
+        "WHERE platform = ? AND board_slug = ?",
+        (datetime.now(timezone.utc).isoformat(), result_count, platform, board_slug),
+    )
+    conn.commit()
+
+
+def set_board_enabled(conn: sqlite3.Connection, *, platform: str, board_slug: str, enabled: bool) -> None:
+    conn.execute(
+        "UPDATE known_boards SET enabled = ? WHERE platform = ? AND board_slug = ?",
+        (1 if enabled else 0, platform, board_slug),
+    )
+    conn.commit()
+
+
+def get_last_scan(conn: sqlite3.Connection, source_name: str) -> datetime | None:
+    row = conn.execute(
+        "SELECT last_scanned_at FROM github_list_scans WHERE source_name = ?", (source_name,)
+    ).fetchone()
+    return _parse_iso(row["last_scanned_at"]) if row else None
+
+
+def record_scan(conn: sqlite3.Connection, source_name: str, when: datetime) -> None:
+    conn.execute(
+        "INSERT INTO github_list_scans (source_name, last_scanned_at) VALUES (?, ?) "
+        "ON CONFLICT(source_name) DO UPDATE SET last_scanned_at = excluded.last_scanned_at",
+        (source_name, when.isoformat()),
+    )
     conn.commit()

@@ -54,6 +54,29 @@ ai:
 # are excluded from the CLI top-20 view. report.html always shows everything.
 min_score_threshold: 30
 
+# Persistent registry of Ashby/Greenhouse/Lever/Workable job-board APIs
+# discovered via HN comments and github_lists below (see
+# jobscout/fetchers/board_registry.py) — every board found is re-polled on
+# every future run, regardless of whether its original source mentions it
+# again. Off by default here would mean coverage never compounds past
+# whatever a single HN thread happens to mention this run.
+board_registry:
+  enabled: true
+  max_workers: 15
+
+# Public, unauthenticated GitHub "remote-first companies" lists scanned for
+# more candidate company URLs, run through the same board-detection logic
+# as HN links (jobscout/fetchers/ats_boards.py's detect_board/resolve_board),
+# and fed into the board_registry above. Edit `sources` to add/remove a
+# list without touching code. Each list is only re-scanned once every
+# `scan_interval_days`, since resolving a non-board-root URL costs 1-2 real
+# HTTP requests per candidate company.
+github_lists:
+  enabled: true
+  scan_interval_days: 7
+  sources:
+    established-remote: "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md"
+
 filters:
   # Stage 1 hard-exclude phrases: country/citizenship, visa/relocation,
   # clearance, and specific US-Pacific-timezone-only requirements.

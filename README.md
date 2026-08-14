@@ -5,7 +5,8 @@ Albania. Fetches postings from multiple sources, filters out ones that
 aren't legally/practically doable from Albania, ranks the rest against a
 hardcoded skills/experience profile, and produces a CLI summary, a static
 HTML report, and a web dashboard. See [PLAN.md](PLAN.md) for the full
-5-phase roadmap — **this repo currently implements Phases 1 through 4**.
+5-phase roadmap — **this repo currently implements Phases 1 through 4,
+plus Phase 4.5**.
 
 ## Status
 
@@ -46,10 +47,20 @@ Sources considered and **rejected**: `freelancermap.de` and `freelance.de`
 any search is gated behind account registration, and the
 `freelance-o-mat.de` RSS aggregator that used to mirror freelancermap now
 returns HTTP 410. Only HTML scraping behind a login would work. Upwork,
-Malt, Toptal, Contra and Freelancer.com are OAuth-gated or prohibit
-scraping. Adzuna has a usable free API but requires registering for an
-`app_id`/`app_key`, which every current source avoids. Arbeitnow covers the
-German market through a real API instead.
+Malt, Toptal, Contra, Freelancer.com and Wellfound are OAuth-gated or
+prohibit scraping (Wellfound has no official public API at all — only paid
+third-party scrapers). LinkedIn and Indeed have no accessible public API
+either: LinkedIn's Jobs API is partner-only and has granted essentially no
+new third-party data access since 2018; Indeed's Publisher API closed to
+new publishers in 2022 and was fully deprecated in 2024. Adzuna has a
+usable free API but requires registering for an `app_id`/`app_key`, which
+every current source avoids. Arbeitnow covers the German market through a
+real API instead.
+
+Phase 4.5: done. A persistent **ATS board registry** (see below) that
+re-polls every Ashby/Greenhouse/Lever/Workable board ever discovered —
+via HN comments or a public GitHub company list — on every future run,
+instead of discovery being thrown away after the run that found it.
 
 ## Install
 
@@ -234,6 +245,52 @@ live audit — a real remote-friendly posting was wrongly excluded this
 way). A phrase mentioned twice, negated once and not the other time,
 still counts as a match.
 
+## ATS board registry (Phase 4.5)
+
+Phase 4's Ashby/Greenhouse/Lever/Workable board expansion
+(`jobscout/fetchers/ats_boards.py`) only ever ran mid-fetch, on whichever
+board URL an HN comment happened to mention that run — discovered fresh in
+memory and thrown away afterward. The registry makes that persistent:
+every board ever discovered is saved to `data/jobscout.db`'s
+`known_boards` table and re-polled, concurrently, on every future run
+regardless of whether its original source mentions it again.
+
+Two discovery sources feed the same registry:
+
+- **HN comments** — unchanged from Phase 4's board expansion; every board
+  `hn_whoishiring.py`/`hn_freelancer.py` resolves this run is now also
+  recorded for future runs, not just used once.
+- **GitHub company lists** (`jobscout/fetchers/github_lists.py`) — scans
+  public, unauthenticated "remote-first companies" lists (currently just
+  `yanirs/established-remote`'s README) for more candidate company URLs,
+  running them through the same board-detection logic HN links use.
+
+A board discovered this run is deliberately *not* also polled this same
+run — it becomes independently pollable starting *next* run, once it's
+been recorded. This is a compounding mechanism, not a same-run
+double-fetch.
+
+`config.yaml`'s `board_registry` and `github_lists` blocks each have their
+own `enabled` toggle, since both make outbound HTTP calls to third-party
+infrastructure on every run:
+
+```yaml
+board_registry:
+  enabled: true
+  max_workers: 15
+
+github_lists:
+  enabled: true
+  scan_interval_days: 7
+  sources:
+    established-remote: "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md"
+```
+
+`github_lists` re-scans each configured source at most once every
+`scan_interval_days` (default 7) — resolving a candidate URL that isn't
+already a bare board-root link costs 1-2 real HTTP requests, so scanning
+every run for no new information isn't worth the cost.
+
 ## Known limitations per source
 
 - **RemoteOK** — the public API returns only ~100 most-recent postings per
@@ -330,6 +387,16 @@ still counts as a match.
   `lists` would discard exactly the skill text the ranker needs. An empty
   board is a valid response (`api.lever.co/v0/postings/lever` returns
   `[]`) and falls back to the original single-Job behavior.
+- **ATS board registry, Workable specifically** — a Workable role found via
+  the registry (`jobscout/fetchers/board_registry.py`) has a weaker
+  description than the same role found via an HN comment, since
+  `posting_to_job`'s `original_description` (the full original HN comment
+  text, prepended ahead of Workable's thin scraped snippet — see
+  `ats_boards.py`'s module docstring) has nothing to be filled with outside
+  an HN discovery. This is a pre-existing limitation either way: Workable's
+  own public API has no description field at all, so even the HN path
+  depends on a truncated ~250-char SEO snippet plus whatever context the
+  comment happened to add.
 - **Himalayas** — the API **clamps `limit` to 20 server-side** regardless
   of what you request (`limit=100` returns 20 and echoes `"limit": 20`),
   so paging steps by 20 via `offset`. `totalCount` is ~99,000, far past
@@ -438,7 +505,10 @@ jobscout/
   htmlutils.py  shared HTML-to-plain-text stripping
   fetchers/     one module per source + a registry (Phase 4 drops in here);
                 ats_boards.py expands a bundled Ashby/Greenhouse board link
-                into one Job per role (used by hn_whoishiring.py)
+                into one Job per role (used by hn_whoishiring.py);
+                board_registry.py (Phase 4.5) re-polls every board ever
+                discovered; github_lists.py (Phase 4.5) seeds it from
+                public GitHub company lists
   dedupe.py     normalized-URL + fuzzy company/title matching
   filters.py    pure eligibility + keyword-relevance functions
   ranker.py     heuristic scorer, same output shape ai_ranker.py produces
@@ -470,5 +540,8 @@ outscoring generic Python, title/positive/recency bonuses, all four
 `config.py` (`ai` block parsing, `ranking_mode` validation), the `gemini`/
 `anthropic` providers' error normalization in `jobscout/llm/` (mocked SDK
 clients, no real network calls), `ai_ranker.py` (structured-output mapping,
-retry/backoff, fatal-vs-transient error handling, cost/token summary), and
-`pipeline.py`'s AI dispatch/caching/fallback logic and `rerank_job()`.
+retry/backoff, fatal-vs-transient error handling, cost/token summary),
+`pipeline.py`'s AI dispatch/caching/fallback logic and `rerank_job()`,
+`board_registry.py` and `github_lists.py` (mocked network boundaries, no
+real HTTP calls), and `pipeline.py`'s registry/discovery wiring and the
+`board_registry`/`github_lists` `enabled` toggles.

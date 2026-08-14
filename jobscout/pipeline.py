@@ -12,9 +12,11 @@ from dataclasses import replace
 
 from jobscout.ai_ranker import AIRanker, AIRankingError
 from jobscout.config import AIConfig, Profile, load_config, load_profile
-from jobscout.db import get_job_by_dedup_key, get_jobs, init_db, upsert_job
+from jobscout.db import get_job_by_dedup_key, get_jobs, init_db, upsert_job, upsert_known_board
 from jobscout.dedupe import dedupe
 from jobscout.fetchers import FETCHER_REGISTRY
+from jobscout.fetchers.board_registry import poll_known_boards
+from jobscout.fetchers.github_lists import seed_from_github_lists
 from jobscout.filters import apply_eligibility_filter, apply_keyword_relevance_filter
 from jobscout.llm import PROVIDER_REGISTRY, build_provider
 from jobscout.models import EligibilityBucket, Job, RankingSource
@@ -71,28 +73,77 @@ def run(
     config = load_config(config_path)
     profile = load_profile(profile_path)
 
+    # Opened before fetching (not just before ranking, as Phase 3 had it) so
+    # poll_known_boards below can read the known_boards registry, and so
+    # newly-discovered boards can be recorded once fetching finishes. This
+    # is safe for the AI-ranking cache read further down: nothing before it
+    # writes to `jobs` this run (upsert_job doesn't happen until after
+    # ranking), so opening conn earlier doesn't change what get_jobs(conn)
+    # returns there.
+    conn = init_db(db_path)
+
     all_jobs: list[Job] = []
+
+    if config.board_registry.enabled:
+        try:
+            registry_jobs = poll_known_boards(conn, max_workers=config.board_registry.max_workers)
+            logger.info("board_registry: polled known boards -> %d jobs", len(registry_jobs))
+        except Exception:
+            logger.exception("board_registry: poll failed unexpectedly, continuing")
+            registry_jobs = []
+        all_jobs.extend(registry_jobs)
+
+    discovered_boards: list[tuple[str, str, str | None, str | None]] = []
     for source_name, fetcher_cls in FETCHER_REGISTRY.items():
         if not config.sources.get(source_name, True):
             logger.info("skipping disabled source: %s", source_name)
             continue
         try:
-            fetched = fetcher_cls().fetch()
+            fetcher = fetcher_cls()
+            fetched = fetcher.fetch()
             logger.info("%s: fetched %d jobs", source_name, len(fetched))
         except Exception:
             # Fetcher contract says fetch() never raises, but this is
             # defense in depth: one dead source must never abort the run.
             logger.exception("%s: fetch failed unexpectedly, continuing", source_name)
             fetched = []
+            fetcher = None
         all_jobs.extend(fetched)
+        # Not every Fetcher tracks this (only HNWhoIsHiringFetcher/
+        # HNFreelancerFetcher do) — getattr with a default keeps this from
+        # requiring a Fetcher protocol change.
+        discovered_boards.extend(getattr(fetcher, "discovered_boards", []))
+
+    # Boards discovered this run (via HN comments above, or a GitHub list
+    # below) are recorded now but deliberately NOT polled again this same
+    # run — an HN-discovered board's roles are already in all_jobs via the
+    # normal HN expansion above, and a newly-seeded board becomes pollable
+    # starting next run via poll_known_boards. This is a next-run
+    # compounding mechanism, not a same-run double-fetch.
+    for platform, slug, company, discovered_url in discovered_boards:
+        try:
+            upsert_known_board(
+                conn,
+                platform=platform,
+                board_slug=slug,
+                company=company,
+                discovered_via="hn_whoishiring",
+                discovered_url=discovered_url,
+            )
+        except Exception:
+            logger.warning("board_registry: failed to record discovered board %s/%s", platform, slug, exc_info=True)
+
+    if config.github_lists.enabled:
+        try:
+            seeded = seed_from_github_lists(conn, config=config.github_lists)
+            logger.info("github_lists: seeded %d new/updated boards", len(seeded))
+        except Exception:
+            logger.exception("github_lists: seeding failed unexpectedly, continuing")
 
     total_fetched = len(all_jobs)
     deduped = dedupe(all_jobs)
     logger.info("deduped %d fetched -> %d unique", total_fetched, len(deduped))
 
-    # Opened before ranking (not after, as Phase 1 had it) so the AI-ranking
-    # cache below can see what was already AI-ranked on a prior run.
-    conn = init_db(db_path)
     existing_by_key = {j.dedup_key: j for j in get_jobs(conn)}
 
     ai_ranker = _build_ai_ranker(config.ai, profile) if config.ranking_mode == "ai" else None

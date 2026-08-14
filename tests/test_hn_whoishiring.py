@@ -103,6 +103,21 @@ def test_expand_bundled_board_replaces_ashby_board_root_with_one_job_per_role(mo
     assert {j.title for j in expanded} == {"AI Engineer | NYC", "AI Engineer | EMEA/LATAM"}
     assert all(j.company == "Starbridge" for j in expanded)
     assert all(j.source_id.startswith("555:ashby:") for j in expanded)
+    assert fetcher.discovered_boards == [("ashby", "starbridge", "Starbridge", "https://jobs.ashbyhq.com/starbridge")]
+
+
+def test_discovered_boards_stays_empty_when_no_board_expansion_occurs():
+    fetcher = HNWhoIsHiringFetcher()
+    job = Job(
+        title="Senior Engineer",
+        company="Acme",
+        description="...",
+        url="https://acme.com/careers/senior-engineer",
+        source="hn_whoishiring",
+    )
+    expanded = fetcher._expand_bundled_board(job, {"id": 1}, resolved_cache={job.url: None})
+    assert expanded == [job]
+    assert fetcher.discovered_boards == []
 
 
 def test_resolve_boards_concurrently_dedupes_and_populates_cache(monkeypatch):
