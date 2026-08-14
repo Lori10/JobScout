@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from jobscout.config import AIConfig, BoardRegistryConfig, GitHubListsConfig, load_config
+from jobscout.config import AIConfig, BoardRegistryConfig, GitHubListsConfig, GitHubRepoSource, load_config
 
 
 def _write_config(tmp_path, data: dict) -> str:
@@ -75,6 +75,7 @@ def test_github_lists_config_defaults_when_no_block(tmp_path):
     assert config.github_lists.enabled is True
     assert config.github_lists.scan_interval_days == 7
     assert "established-remote" in config.github_lists.sources
+    assert [s.name for s in config.github_lists.repo_sources] == ["remoteintech-remote-jobs"]
 
 
 def test_github_lists_block_parsed_from_yaml(tmp_path):
@@ -92,3 +93,44 @@ def test_github_lists_block_parsed_from_yaml(tmp_path):
     assert config.github_lists.enabled is False
     assert config.github_lists.scan_interval_days == 14
     assert config.github_lists.sources == {"custom-list": "https://example.com/README.md"}
+    # repo_sources wasn't in the YAML block, so it falls back to the
+    # dataclass default, same precedent `sources` already sets.
+    assert [s.name for s in config.github_lists.repo_sources] == ["remoteintech-remote-jobs"]
+
+
+def test_github_lists_repo_sources_parsed_from_yaml(tmp_path):
+    path = _write_config(
+        tmp_path,
+        {
+            "github_lists": {
+                "sources": {},
+                "repo_sources": [
+                    {
+                        "name": "custom-repo",
+                        "owner": "acme",
+                        "repo": "jobs",
+                        "branch": "trunk",
+                        "path_prefix": "companies/",
+                        "frontmatter_field": "apply_url",
+                    }
+                ],
+            }
+        },
+    )
+    config = load_config(path)
+    assert config.github_lists.repo_sources == [
+        GitHubRepoSource(
+            name="custom-repo",
+            owner="acme",
+            repo="jobs",
+            branch="trunk",
+            path_prefix="companies/",
+            frontmatter_field="apply_url",
+        )
+    ]
+
+
+def test_github_lists_repo_sources_empty_list_disables_repo_scanning(tmp_path):
+    path = _write_config(tmp_path, {"github_lists": {"repo_sources": []}})
+    config = load_config(path)
+    assert config.github_lists.repo_sources == []

@@ -76,6 +76,20 @@ github_lists:
   scan_interval_days: 7
   sources:
     established-remote: "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md"
+  # Structured, company-per-file GitHub repos: one API call lists the
+  # repo's file tree, then one raw-file fetch per company, and each file's
+  # YAML frontmatter is read directly for `frontmatter_field` rather than
+  # regexed as prose — a heavier cost tier than `sources` above (882 raw
+  # fetches for remoteintech/remote-jobs as of 2026-08), so it's kept in
+  # its own list rather than folded into `sources`. Same scan_interval_days
+  # cadence gate applies, keyed by `name`.
+  repo_sources:
+    - name: remoteintech-remote-jobs
+      owner: remoteintech
+      repo: remote-jobs
+      branch: main
+      path_prefix: src/companies/
+      frontmatter_field: careers_url
 
 filters:
   # Stage 1 hard-exclude phrases: country/citizenship, visa/relocation,

@@ -159,15 +159,25 @@ optional `source` kwarg (default `"hn_whoishiring"`, so the original HN
 call site is unchanged) and the registry poller passes
 `"ats_board_registry"`.
 
-**Deliberately not built:** `remoteintech/remote-jobs`, a larger (~200+
-companies) candidate GitHub source with a `careers_url` field per company
-— but restructured into one markdown file per company under
-`src/companies/`, requiring a rate-limited (60 req/hour unauthenticated)
-GitHub API directory listing plus ~200 individual file fetches, meaningfully
-heavier than `established-remote`'s single README fetch. Scoped out of
-this pass to land the cheaper source first; adding it later is a
-`github_lists.sources` config entry away once this path is proven, not a
-code change.
+**Also built (later pass) — `remoteintech/remote-jobs`**, a second, larger
+(882 companies as of 2026-08) candidate GitHub source, one markdown file
+per company under `src/companies/` with a `careers_url` field in YAML
+frontmatter. Originally scoped out of this phase over a rate-limit
+concern — "60 req/hour unauthenticated GitHub API directory listing plus
+~200 individual file fetches" — that turned out to be avoidable: the full
+file list comes back in one `git/trees/{branch}?recursive=1` API call
+(not a paginated `contents` listing), and the per-file bodies are fetched
+from `raw.githubusercontent.com`, a CDN not subject to `api.github.com`'s
+rate limit. Still meaningfully heavier than `established-remote`'s single
+README fetch (hundreds of raw-file fetches vs. one), so it's config-shaped
+differently: `github_lists.repo_sources` (a list of `{name, owner, repo,
+branch, path_prefix, frontmatter_field}` entries) rather than reusing
+`github_lists.sources`' `name → URL` dict, since a repo-of-frontmatter-
+files source needs more than a single URL to describe. Frontmatter is
+read via `yaml.safe_load` on the field named by `frontmatter_field`,
+rather than regexed for any URL-shaped text like `sources` does — more
+precise, since a company's markdown body can itself contain unrelated
+URLs a generic regex would wrongly pick up.
 
 ## Phase 5 (later) — Research briefs and outreach drafting
 

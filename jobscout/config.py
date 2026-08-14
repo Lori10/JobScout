@@ -57,6 +57,22 @@ class BoardRegistryConfig:
 
 
 @dataclass
+class GitHubRepoSource:
+    """One GitHub repo of per-company markdown files with YAML frontmatter
+    (e.g. remoteintech/remote-jobs), scanned via the git trees API + raw.
+    githubusercontent.com rather than a single README fetch — see
+    github_lists.py's module docstring for why this is a distinct, heavier
+    cost tier than GitHubListsConfig.sources below."""
+
+    name: str
+    owner: str
+    repo: str
+    branch: str = "main"
+    path_prefix: str = ""
+    frontmatter_field: str = "careers_url"
+
+
+@dataclass
 class GitHubListsConfig:
     enabled: bool = True
     scan_interval_days: int = 7
@@ -64,6 +80,18 @@ class GitHubListsConfig:
         default_factory=lambda: {
             "established-remote": "https://raw.githubusercontent.com/yanirs/established-remote/master/README.md",
         }
+    )
+    repo_sources: list[GitHubRepoSource] = field(
+        default_factory=lambda: [
+            GitHubRepoSource(
+                name="remoteintech-remote-jobs",
+                owner="remoteintech",
+                repo="remote-jobs",
+                branch="main",
+                path_prefix="src/companies/",
+                frontmatter_field="careers_url",
+            ),
+        ]
     )
 
 
@@ -147,6 +175,19 @@ def load_config(path: str | Path = "config.yaml") -> AppConfig:
             enabled=bool(github_lists_raw.get("enabled", True)),
             scan_interval_days=int(github_lists_raw.get("scan_interval_days", 7)),
             sources=dict(github_lists_raw.get("sources", default_github_lists.sources)),
+            repo_sources=[
+                GitHubRepoSource(
+                    name=entry["name"],
+                    owner=entry["owner"],
+                    repo=entry["repo"],
+                    branch=entry.get("branch", "main"),
+                    path_prefix=entry.get("path_prefix", ""),
+                    frontmatter_field=entry.get("frontmatter_field", "careers_url"),
+                )
+                for entry in github_lists_raw.get("repo_sources", [])
+            ]
+            if "repo_sources" in github_lists_raw
+            else default_github_lists.repo_sources,
         ),
     )
 
