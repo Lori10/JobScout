@@ -258,6 +258,18 @@ def test_ashby_posting_to_job_returns_none_without_url():
     assert posting_to_job("ashby", raw, company="Acme", comment_id=1, fallback_posted_date=None) is None
 
 
+def test_ashby_posting_to_job_source_defaults_to_hn_whoishiring():
+    raw = {"id": "1", "title": "Role", "jobUrl": "https://jobs.ashbyhq.com/acme/1"}
+    job = posting_to_job("ashby", raw, company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job.source == "hn_whoishiring"
+
+
+def test_ashby_posting_to_job_source_param_threaded():
+    raw = {"id": "1", "title": "Role", "jobUrl": "https://jobs.ashbyhq.com/acme/1"}
+    job = posting_to_job("ashby", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry")
+    assert job.source == "ats_board_registry"
+
+
 def test_greenhouse_posting_to_job_maps_fields():
     raw = {
         "id": 8077887,
@@ -281,6 +293,18 @@ def test_greenhouse_posting_to_job_maps_fields():
 def test_greenhouse_posting_to_job_returns_none_without_title():
     raw = {"id": 1, "absolute_url": "https://acme.com/jobs/1", "title": ""}
     assert posting_to_job("greenhouse", raw, company="Acme", comment_id=1, fallback_posted_date=None) is None
+
+
+def test_greenhouse_posting_to_job_source_defaults_to_hn_whoishiring():
+    raw = {"id": 1, "absolute_url": "https://acme.com/jobs/1", "title": "Role"}
+    job = posting_to_job("greenhouse", raw, company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job.source == "hn_whoishiring"
+
+
+def test_greenhouse_posting_to_job_source_param_threaded():
+    raw = {"id": 1, "absolute_url": "https://acme.com/jobs/1", "title": "Role"}
+    job = posting_to_job("greenhouse", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry")
+    assert job.source == "ats_board_registry"
 
 
 def test_posting_to_job_returns_none_for_unknown_platform():
@@ -437,6 +461,18 @@ def test_lever_workplace_type_reaches_location_text():
 def test_lever_posting_to_job_returns_none_without_url_or_title():
     assert posting_to_job("lever", make_lever_posting(hostedUrl=None, applyUrl=None), company="X", comment_id=1, fallback_posted_date=None) is None
     assert posting_to_job("lever", make_lever_posting(text=None), company="X", comment_id=1, fallback_posted_date=None) is None
+
+
+def test_lever_posting_to_job_source_defaults_to_hn_whoishiring():
+    job = posting_to_job("lever", make_lever_posting(), company="X", comment_id=1, fallback_posted_date=None)
+    assert job.source == "hn_whoishiring"
+
+
+def test_lever_posting_to_job_source_param_threaded():
+    job = posting_to_job(
+        "lever", make_lever_posting(), company="X", comment_id=1, fallback_posted_date=None, source="ats_board_registry"
+    )
+    assert job.source == "ats_board_registry"
 
 
 # ---- workable ----
@@ -670,3 +706,26 @@ def test_workable_posting_to_job_returns_none_without_url_or_title(monkeypatch):
     )
     assert posting_to_job("workable", make_workable_posting(url=None), company="X", comment_id=1, fallback_posted_date=None) is None
     assert posting_to_job("workable", make_workable_posting(title=None), company="X", comment_id=1, fallback_posted_date=None) is None
+
+
+def test_workable_posting_to_job_source_defaults_to_hn_whoishiring(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job("workable", make_workable_posting(), company="X", comment_id=1, fallback_posted_date=None)
+    assert job.source == "hn_whoishiring"
+
+
+def test_workable_posting_to_job_source_param_threaded(monkeypatch):
+    monkeypatch.setattr(
+        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    )
+    job = posting_to_job(
+        "workable",
+        make_workable_posting(),
+        company="X",
+        comment_id=1,
+        fallback_posted_date=None,
+        source="ats_board_registry",
+    )
+    assert job.source == "ats_board_registry"

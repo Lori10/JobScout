@@ -14,6 +14,13 @@ source_id as f"{comment_id}:{platform}:{raw_id}" — that marker is what
 dedupe._has_source_assigned_role_id reads to keep several distinct roles
 from one company off each other's fuzzy-merge path.
 
+board_registry.py also calls fetch_board_postings/posting_to_job directly,
+outside any HN comment, to re-poll boards already known from a prior run
+(see that module) — posting_to_job's `source` kwarg (default
+"hn_whoishiring") is how a Job produced that way is correctly labeled
+"ats_board_registry" instead of misattributing itself to a comment that
+was never actually seen this run.
+
 A URL with an extra path segment (e.g. .../starbridge/117e56db-...) already
 names one specific role and is intentionally left untouched by detect_board
 — only bare board-root links are bundles.
@@ -266,25 +273,38 @@ def _fetch_workable_snippet(job_url: str) -> str | None:
 
 
 def posting_to_job(
-    platform: str, raw: dict, *, company: str, comment_id, fallback_posted_date, original_description: str | None = None
+    platform: str,
+    raw: dict,
+    *,
+    company: str,
+    comment_id,
+    fallback_posted_date,
+    original_description: str | None = None,
+    source: str = "hn_whoishiring",
 ) -> Job | None:
     """Returns None (never raises) for a malformed posting missing a
     url/title — the caller drops it rather than storing a useless Job.
     `original_description` is only consumed by Workable (see
     _workable_posting_to_job); the other platforms already get a full
-    description directly from their own API and ignore it."""
+    description directly from their own API and ignore it. `source`
+    defaults to "hn_whoishiring" so the original HN call site is
+    unaffected; board_registry.py's registry poller passes
+    "ats_board_registry" instead, since these Jobs weren't found via an HN
+    comment on this run."""
     if platform == "ashby":
-        return _ashby_posting_to_job(raw, company, comment_id, fallback_posted_date)
+        return _ashby_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
     if platform == "greenhouse":
-        return _greenhouse_posting_to_job(raw, company, comment_id, fallback_posted_date)
+        return _greenhouse_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
     if platform == "lever":
-        return _lever_posting_to_job(raw, company, comment_id, fallback_posted_date)
+        return _lever_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
     if platform == "workable":
-        return _workable_posting_to_job(raw, company, comment_id, fallback_posted_date, original_description)
+        return _workable_posting_to_job(raw, company, comment_id, fallback_posted_date, original_description, source)
     return None
 
 
-def _ashby_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_date) -> Job | None:
+def _ashby_posting_to_job(
+    raw: dict, company: str, comment_id, fallback_posted_date, source: str = "hn_whoishiring"
+) -> Job | None:
     url = raw.get("jobUrl") or raw.get("applyUrl")
     title = raw.get("title")
     if not url or not title:
@@ -297,7 +317,7 @@ def _ashby_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_d
         company=company,
         description=description,
         url=url,
-        source="hn_whoishiring",
+        source=source,
         posted_date=posted_date,
         tags=tags,
         location_text=raw.get("location"),
@@ -306,7 +326,9 @@ def _ashby_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_d
     )
 
 
-def _greenhouse_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_date) -> Job | None:
+def _greenhouse_posting_to_job(
+    raw: dict, company: str, comment_id, fallback_posted_date, source: str = "hn_whoishiring"
+) -> Job | None:
     url = raw.get("absolute_url")
     title = raw.get("title")
     if not url or not title:
@@ -324,7 +346,7 @@ def _greenhouse_posting_to_job(raw: dict, company: str, comment_id, fallback_pos
         company=company,
         description=description,
         url=url,
-        source="hn_whoishiring",
+        source=source,
         posted_date=posted_date,
         tags=tags,
         location_text=location,
@@ -333,7 +355,9 @@ def _greenhouse_posting_to_job(raw: dict, company: str, comment_id, fallback_pos
     )
 
 
-def _lever_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_date) -> Job | None:
+def _lever_posting_to_job(
+    raw: dict, company: str, comment_id, fallback_posted_date, source: str = "hn_whoishiring"
+) -> Job | None:
     url = raw.get("hostedUrl") or raw.get("applyUrl")
     title = raw.get("text")
     if not url or not title:
@@ -369,7 +393,7 @@ def _lever_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_d
         company=company,
         description=description,
         url=url,
-        source="hn_whoishiring",
+        source=source,
         # createdAt is MILLISECONDS here; Ashby/Greenhouse use ISO strings.
         posted_date=parse_unix_timestamp(raw.get("createdAt"), milliseconds=True) or fallback_posted_date,
         tags=tags,
@@ -381,7 +405,12 @@ def _lever_posting_to_job(raw: dict, company: str, comment_id, fallback_posted_d
 
 
 def _workable_posting_to_job(
-    raw: dict, company: str, comment_id, fallback_posted_date, original_description: str | None = None
+    raw: dict,
+    company: str,
+    comment_id,
+    fallback_posted_date,
+    original_description: str | None = None,
+    source: str = "hn_whoishiring",
 ) -> Job | None:
     url = raw.get("url")
     title = raw.get("title")
@@ -410,7 +439,7 @@ def _workable_posting_to_job(
         company=resolved_company,
         description=description,
         url=url,
-        source="hn_whoishiring",
+        source=source,
         posted_date=posted_date,
         tags=tags,
         location_text=location_text,
