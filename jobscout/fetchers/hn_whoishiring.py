@@ -66,6 +66,16 @@ _HN_PERMALINK_PREFIX = "https://news.ycombinator.com/item"
 class HNWhoIsHiringFetcher:
     name = "hn_whoishiring"
 
+    def __init__(self) -> None:
+        # (platform, board_slug, company, discovered_url) for every board
+        # _expand_bundled_board successfully resolves this run, even one
+        # that happens to return zero postings right now — still worth
+        # tracking for board_registry.py to poll again in a future run.
+        # pipeline.py reads this via getattr() after fetch() returns (not
+        # every Fetcher has this attribute) and records it into the
+        # known_boards table.
+        self.discovered_boards: list[tuple[str, str, str | None, str | None]] = []
+
     # --- Per-thread hooks -------------------------------------------------
     # Everything below this class that varies between HN's monthly threads
     # is reachable through these three; hn_freelancer.py subclasses and
@@ -181,6 +191,7 @@ class HNWhoIsHiringFetcher:
         if board is None:
             return [job]
         platform, slug = board
+        self.discovered_boards.append((platform, slug, job.company, job.url))
         postings = fetch_board_postings(platform, slug)
         if not postings:
             return [job]
