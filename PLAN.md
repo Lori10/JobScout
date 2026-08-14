@@ -119,6 +119,56 @@ scraping-prohibited); Adzuna has a usable free API but needs a registered
 instead. See README's "Known limitations per source" for what each source
 does and doesn't catch.
 
+## Phase 4.5 (built) — Persistent ATS board registry + GitHub-list seeding
+
+**Built:** Phase 4's Ashby/Greenhouse/Lever/Workable bundle expansion
+(`ats_boards.py`) only ever ran mid-fetch, on a board URL an HN comment
+happened to mention that run — discovered fresh in memory and thrown away
+afterward, so a board never re-mentioned in a later HN thread became
+invisible again. `db.py`'s new `known_boards` table persists every board
+ever discovered (platform + slug, with `enabled`/`first_seen_at`/
+`last_polled_at` bookkeeping), and `fetchers/board_registry.py`'s
+`poll_known_boards()` re-polls every enabled one, concurrently, on every
+future run — turning one-off discovery into standing, compounding
+coverage. `hn_whoishiring.py` now tracks which boards it resolved each run
+(`self.discovered_boards`) and `pipeline.py` records them into the
+registry after the fetch loop. A board discovered this run is deliberately
+*not* also polled this same run — its roles are already in this run's Jobs
+via the normal HN expansion; it only becomes independently pollable
+starting next run.
+
+**Also built — `fetchers/github_lists.py`**, a second, independent
+discovery source: scans `yanirs/established-remote`'s public README (a
+single unauthenticated fetch, ~105 remote-first companies, at least one
+already-bare `boards.greenhouse.io/...` link confirmed live) for candidate
+company URLs, runs them through the same `detect_board`/`resolve_board`
+logic HN links use, and feeds any newly-found boards into the same
+registry. Re-scanned at most once every `github_lists.scan_interval_days`
+(default 7) per source, since resolving a non-board-root candidate costs
+1-2 real HTTP requests. Both this and `board_registry` have explicit
+`config.yaml` `enabled` toggles — unlike a code-level ATS-platform
+addition (e.g. Lever), both make outbound calls to third-party
+infrastructure on every run, so turning either off shouldn't require a
+code change.
+
+Required fixing `ats_boards.py`'s four `_*_posting_to_job` functions,
+which hardcoded `Job.source = "hn_whoishiring"` unconditionally — a
+registry-polled Job would otherwise misleadingly claim to have come from
+an HN comment never actually read this run. `posting_to_job` now takes an
+optional `source` kwarg (default `"hn_whoishiring"`, so the original HN
+call site is unchanged) and the registry poller passes
+`"ats_board_registry"`.
+
+**Deliberately not built:** `remoteintech/remote-jobs`, a larger (~200+
+companies) candidate GitHub source with a `careers_url` field per company
+— but restructured into one markdown file per company under
+`src/companies/`, requiring a rate-limited (60 req/hour unauthenticated)
+GitHub API directory listing plus ~200 individual file fetches, meaningfully
+heavier than `established-remote`'s single README fetch. Scoped out of
+this pass to land the cheaper source first; adding it later is a
+`github_lists.sources` config entry away once this path is proven, not a
+code change.
+
 ## Phase 5 (later) — Research briefs and outreach drafting
 
 For jobs marked `interested` in the dashboard, fetch public company info
