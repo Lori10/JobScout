@@ -1,0 +1,17 @@
+services:
+  jobscout:
+    build: .
+    image: jobscout:local
+    ports:
+      - "8000:8000"
+    # CMD in the image already runs `python -m jobscout serve --host 0.0.0.0`
+    # with JOBSCOUT_CONFIG_PATH/JOBSCOUT_PROFILE_PATH/JOBSCOUT_DB_PATH/
+    # JOBSCOUT_REPORT_PATH defaulting to the paths bind-mounted below.
+    # Override `command:` here only if you need different flags without rebuilding.
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./profile.yaml:/app/profile.yaml:ro
+      - ./.env:/app/.env:ro
+      - ./data:/app/data
+      - ./report.html:/app/report.html
+    restart: unless-stopped
