@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# PreToolUse guard for Bash: enforces JobScout's git workflow as a hard
-# safety net alongside the same rules documented in CLAUDE.md.
-#   1. No `git commit` while on main/master.
-#   2. No "Co-Authored-By: Claude" trailer in a commit.
-#   3. No --force/--force-with-lease push to main/master.
+# PreToolUse guard for Bash: enforces JobScout's git workflow.
+#   Hard blocks (deny):
+#     1. `git commit` while on main/master.
+#     2. A "Co-Authored-By: Claude" trailer in a commit.
+#     3. --force/--force-with-lease push to main/master.
+#   Confirmation required (ask), even when not otherwise blocked:
+#     4. Any `git commit`.
+#     5. Any `git merge`.
+#     6. Any `git push`.
 set -euo pipefail
 
 input="$(cat)"
@@ -17,6 +21,11 @@ deny() {
   exit 2
 }
 
+ask() {
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"git-guard: %s"}}\n' "$1"
+  exit 0
+}
+
 current_branch() {
   git rev-parse --abbrev-ref HEAD 2>/dev/null || printf ''
 }
@@ -28,8 +37,12 @@ is_main_or_master() {
   esac
 }
 
-# --- Rule 1 & 2: git commit ---
-if printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+commit\b(?!-)'; then
+is_commit="$(printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+commit\b(?!-)' && echo 1 || echo 0)"
+is_merge="$(printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+merge\b' && echo 1 || echo 0)"
+is_push="$(printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+push\b' && echo 1 || echo 0)"
+
+# --- Rule 1 & 2: git commit hard blocks ---
+if [ "$is_commit" = 1 ]; then
   branch="$(current_branch)"
   if is_main_or_master "$branch"; then
     deny "direct commits to '$branch' are not allowed. Create a feature/, fix/, or hotfix/ branch first, then merge into $branch with 'git merge --ff-only' once the work is done."
@@ -39,23 +52,32 @@ if printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+commit\b(?!-)'
   fi
 fi
 
-# --- Rule 3: forced push to main/master ---
-if printf '%s' "$command" | grep -qP '(^|[;&|]|\s)git(\s+-\S+)*\s+push\b'; then
-  if printf '%s' "$command" | grep -qP -- '(--force(-with-lease)?\b|(^|\s)-f(\s|$))'; then
-    if printf '%s' "$command" | grep -qP '\b(main|master)\b'; then
-      deny "force-push targeting main/master is blocked. If main has diverged, resolve it with a normal (non-force) merge instead of overwriting shared history."
-    fi
-    # No branch named explicitly (0-1 non-flag tokens after 'push') means
-    # git falls back to the current branch, so that's what matters here.
-    rest="$(printf '%s' "$command" | sed -E 's/^.*\bpush\b//')"
-    nonflag="$(printf '%s\n' $rest | awk '!/^-/ && NF' | wc -l)"
-    if [ "$nonflag" -le 1 ]; then
-      branch="$(current_branch)"
-      if is_main_or_master "$branch"; then
-        deny "force-push while HEAD is on '$branch' is blocked. If main has diverged, resolve it with a normal (non-force) merge instead of overwriting shared history."
-      fi
+# --- Rule 3: forced push to main/master hard block ---
+if [ "$is_push" = 1 ] && printf '%s' "$command" | grep -qP -- '(--force(-with-lease)?\b|(^|\s)-f(\s|$))'; then
+  if printf '%s' "$command" | grep -qP '\b(main|master)\b'; then
+    deny "force-push targeting main/master is blocked. If main has diverged, resolve it with a normal (non-force) merge instead of overwriting shared history."
+  fi
+  # No branch named explicitly (0-1 non-flag tokens after 'push') means
+  # git falls back to the current branch, so that's what matters here.
+  rest="$(printf '%s' "$command" | sed -E 's/^.*\bpush\b//')"
+  nonflag="$(printf '%s\n' $rest | awk '!/^-/ && NF' | wc -l)"
+  if [ "$nonflag" -le 1 ]; then
+    branch="$(current_branch)"
+    if is_main_or_master "$branch"; then
+      deny "force-push while HEAD is on '$branch' is blocked. If main has diverged, resolve it with a normal (non-force) merge instead of overwriting shared history."
     fi
   fi
+fi
+
+# --- Rules 4-6: commit/merge/push always require explicit confirmation ---
+if [ "$is_commit" = 1 ]; then
+  ask "about to run a git commit. Confirm before proceeding."
+fi
+if [ "$is_merge" = 1 ]; then
+  ask "about to merge branches. Confirm before proceeding."
+fi
+if [ "$is_push" = 1 ]; then
+  ask "about to push to the remote. Confirm before proceeding."
 fi
 
 exit 0

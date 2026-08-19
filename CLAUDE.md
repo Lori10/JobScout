@@ -28,7 +28,7 @@ This repo uses a solo-dev branch-per-change workflow. Two PreToolUse hooks enfor
 - **Never commit directly on `main`.** `.claude/hooks/git-guard.sh` blocks it regardless of what's being committed.
 - **Never add a "Co-Authored-By: Claude" trailer to a commit message.** This project doesn't want it — omit it entirely rather than relying on `attribution` settings.
 - **To land a branch, merge it into `main` with a fast-forward only merge** (`git checkout main && git merge --ff-only <branch>`), then delete the branch (`git branch -d <branch>`). If `--ff-only` fails because `main` has diverged, stop and ask — don't force it and don't fall back to a merge commit without checking with the user first.
-- **Push `main` to `origin` right after a successful merge, without asking** — this is pre-authorized for this workflow specifically, since the hook blocks the dangerous cases (force-push, wrong branch). Feature/fix/hotfix branches themselves stay local-only and are never pushed to `origin`.
+- **Never commit, merge, or push without the user's explicit confirmation first — even mid-task, even for a routine step in this same workflow.** This is not optional and not just a style preference: `.claude/hooks/git-guard.sh` forces a permission prompt (`permissionDecision: "ask"`) on every `git commit`, `git merge`, and `git push`, specifically so this can't be silently skipped. Do not batch multiple commits/merges/pushes into one confirmation, and do not treat an earlier approval as covering a later one — each needs its own.
 - **Never force-push (`--force`/`--force-with-lease`) to `main`/`master`.** If history has diverged, resolve it with a normal merge, not by overwriting shared history.
 
 ## Commands
