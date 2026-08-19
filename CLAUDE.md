@@ -20,6 +20,17 @@ wsl.exe -d Ubuntu -- bash -lc "source \$HOME/.nvm/nvm.sh && cd /home/lori28/JobS
 
 `scripts/dev.sh` already sources it automatically.
 
+## Git workflow
+
+This repo uses a solo-dev branch-per-change workflow. Two PreToolUse hooks enforce the hard rules below as a safety net — follow them proactively rather than relying on the hooks to catch a mistake.
+
+- **Never edit or write code directly on `main`.** Before starting any change, create a branch: `feature/<name>` for new functionality, `fix/<name>` for bug fixes, `hotfix/<name>` for urgent fixes. Do the work and commit there. `.claude/hooks/main-branch-edit-guard.sh` blocks Edit/Write on `main`/`master` for anything other than docs and config — `*.md`, `*.yaml`/`*.yml`, and `.claude/**` are exempt so things like this file or `config.yaml` can still be maintained directly on main.
+- **Never commit directly on `main`.** `.claude/hooks/git-guard.sh` blocks it regardless of what's being committed.
+- **Never add a "Co-Authored-By: Claude" trailer to a commit message.** This project doesn't want it — omit it entirely rather than relying on `attribution` settings.
+- **To land a branch, merge it into `main` with a fast-forward only merge** (`git checkout main && git merge --ff-only <branch>`), then delete the branch (`git branch -d <branch>`). If `--ff-only` fails because `main` has diverged, stop and ask — don't force it and don't fall back to a merge commit without checking with the user first.
+- **Push `main` to `origin` right after a successful merge, without asking** — this is pre-authorized for this workflow specifically, since the hook blocks the dangerous cases (force-push, wrong branch). Feature/fix/hotfix branches themselves stay local-only and are never pushed to `origin`.
+- **Never force-push (`--force`/`--force-with-lease`) to `main`/`master`.** If history has diverged, resolve it with a normal merge, not by overwriting shared history.
+
 ## Commands
 
 Install (bootstraps pip via stdlib `ensurepip` — `pip`/`uv` are not assumed pre-installed):
