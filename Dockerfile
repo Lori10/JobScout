@@ -15,6 +15,11 @@ COPY pyproject.toml ./
 COPY jobscout/ ./jobscout/
 RUN pip install --no-cache-dir .
 
+# Baked in as a working default for standalone deploys (e.g. Fly.io) that
+# have no docker-compose bind mount; local dev overrides these via
+# docker-compose.yml's bind mount without needing a rebuild.
+COPY config.yaml profile.yaml ./
+
 COPY --from=frontend-builder /build/dist ./frontend/dist
 RUN test -f ./frontend/dist/index.html || \
     (echo "ERROR: frontend build missing at /app/frontend/dist -- aborting" && exit 1)
