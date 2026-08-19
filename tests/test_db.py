@@ -164,7 +164,12 @@ def test_init_db_migrates_seniority_fit_column_onto_pre_phase3_db(tmp_path):
 
 def test_upsert_known_board_insert_and_get(conn):
     upsert_known_board(
-        conn, platform="ashby", board_slug="starbridge", company="Starbridge", discovered_via="hn_whoishiring", discovered_url="https://jobs.ashbyhq.com/starbridge"
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company="Starbridge",
+        discovered_via="hn_whoishiring",
+        discovered_url="https://jobs.ashbyhq.com/starbridge",
     )
     boards = get_known_boards(conn)
     assert len(boards) == 1
@@ -175,10 +180,24 @@ def test_upsert_known_board_insert_and_get(conn):
 
 
 def test_upsert_known_board_first_seen_at_not_clobbered(conn):
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company=None,
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     first_seen = get_known_boards(conn)[0].first_seen_at
 
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company="Starbridge Inc", discovered_via="github:established-remote", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company="Starbridge Inc",
+        discovered_via="github:established-remote",
+        discovered_url=None,
+    )
     board = get_known_boards(conn)[0]
     assert board.first_seen_at == first_seen
     assert board.company == "Starbridge Inc"
@@ -186,23 +205,55 @@ def test_upsert_known_board_first_seen_at_not_clobbered(conn):
 
 
 def test_upsert_known_board_enabled_not_clobbered_by_rediscovery(conn):
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company=None,
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     set_board_enabled(conn, platform="ashby", board_slug="starbridge", enabled=False)
 
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company=None,
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     board = get_known_boards(conn, enabled_only=False)[0]
     assert board.enabled is False
 
 
 def test_upsert_known_board_unique_constraint(conn):
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company=None,
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company=None,
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     assert len(get_known_boards(conn, enabled_only=False)) == 1
 
 
 def test_get_known_boards_enabled_only_filter(conn):
-    upsert_known_board(conn, platform="ashby", board_slug="a", company=None, discovered_via="hn_whoishiring", discovered_url=None)
-    upsert_known_board(conn, platform="ashby", board_slug="b", company=None, discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn, platform="ashby", board_slug="a", company=None, discovered_via="hn_whoishiring", discovered_url=None
+    )
+    upsert_known_board(
+        conn, platform="ashby", board_slug="b", company=None, discovered_via="hn_whoishiring", discovered_url=None
+    )
     set_board_enabled(conn, platform="ashby", board_slug="b", enabled=False)
 
     assert {b.board_slug for b in get_known_boards(conn, enabled_only=True)} == {"a"}
@@ -210,7 +261,14 @@ def test_get_known_boards_enabled_only_filter(conn):
 
 
 def test_record_board_poll_updates_only_poll_fields(conn):
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company="Starbridge", discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company="Starbridge",
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     record_board_poll(conn, platform="ashby", board_slug="starbridge", result_count=5)
 
     board = get_known_boards(conn)[0]

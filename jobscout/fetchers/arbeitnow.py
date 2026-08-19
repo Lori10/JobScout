@@ -72,7 +72,12 @@ class ArbeitnowFetcher:
                 response.raise_for_status()
                 data = response.json()
             except Exception:
-                logger.warning("arbeitnow: fetch failed on page %d, keeping %d jobs so far", page, len(jobs), exc_info=True)
+                logger.warning(
+                    "arbeitnow: fetch failed on page %d, keeping %d jobs so far",
+                    page,
+                    len(jobs),
+                    exc_info=True,
+                )
                 break
 
             if not isinstance(data, dict):

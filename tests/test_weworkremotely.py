@@ -112,10 +112,16 @@ def test_parse_item_returns_none_without_url_or_title():
 
 def test_fetch_dedupes_the_same_job_across_feeds(monkeypatch):
     # The site-wide feed and the category feeds legitimately overlap.
-    feed = make_feed(ITEM_TEMPLATE.format(
-        title="Acme: Engineer", region="Europe", country="", skills="", type="Contract",
-        guid="https://weworkremotely.com/remote-jobs/acme-engineer",
-    ))
+    feed = make_feed(
+        ITEM_TEMPLATE.format(
+            title="Acme: Engineer",
+            region="Europe",
+            country="",
+            skills="",
+            type="Contract",
+            guid="https://weworkremotely.com/remote-jobs/acme-engineer",
+        )
+    )
     monkeypatch.setattr(wwr_module.requests, "get", lambda *a, **k: FakeResponse(feed))
     jobs = WeWorkRemotelyFetcher().fetch()
     assert len(jobs) == 1
@@ -127,10 +133,18 @@ def test_fetch_reads_every_configured_feed(monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         seen.append(url)
         slug = str(len(seen))
-        return FakeResponse(make_feed(ITEM_TEMPLATE.format(
-            title=f"Acme{slug}: Engineer", region="Europe", country="", skills="", type="Full-Time",
-            guid=f"https://weworkremotely.com/remote-jobs/{slug}",
-        )))
+        return FakeResponse(
+            make_feed(
+                ITEM_TEMPLATE.format(
+                    title=f"Acme{slug}: Engineer",
+                    region="Europe",
+                    country="",
+                    skills="",
+                    type="Full-Time",
+                    guid=f"https://weworkremotely.com/remote-jobs/{slug}",
+                )
+            )
+        )
 
     monkeypatch.setattr(wwr_module.requests, "get", fake_get)
     jobs = WeWorkRemotelyFetcher().fetch()
@@ -142,10 +156,18 @@ def test_one_dead_feed_does_not_kill_the_others(monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         if url == wwr_module.FEED_URLS[0]:
             raise RuntimeError("network down")
-        return FakeResponse(make_feed(ITEM_TEMPLATE.format(
-            title="Acme: Engineer", region="Europe", country="", skills="", type="Full-Time",
-            guid=f"https://weworkremotely.com/remote-jobs/{url[-12:]}",
-        )))
+        return FakeResponse(
+            make_feed(
+                ITEM_TEMPLATE.format(
+                    title="Acme: Engineer",
+                    region="Europe",
+                    country="",
+                    skills="",
+                    type="Full-Time",
+                    guid=f"https://weworkremotely.com/remote-jobs/{url[-12:]}",
+                )
+            )
+        )
 
     monkeypatch.setattr(wwr_module.requests, "get", fake_get)
     assert len(WeWorkRemotelyFetcher().fetch()) == len(wwr_module.FEED_URLS) - 1

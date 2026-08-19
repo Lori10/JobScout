@@ -46,7 +46,12 @@ import re
 
 import requests
 
-from jobscout.fetchers.common import contract_type_from_label, extract_href_urls, parse_iso_datetime, parse_unix_timestamp
+from jobscout.fetchers.common import (
+    contract_type_from_label,
+    extract_href_urls,
+    parse_iso_datetime,
+    parse_unix_timestamp,
+)
 from jobscout.htmlutils import strip_html
 from jobscout.models import ApplicationChannel, Job
 

@@ -37,7 +37,10 @@ def test_poll_known_boards_polls_all_enabled_boards(conn, monkeypatch):
     jobs = poll_known_boards(conn)
     assert len(jobs) == 2
     assert {j.source for j in jobs} == {"ats_board_registry"}
-    assert {j.source_id for j in jobs} == {"registry:ashby:starbridge:ashby:starbridge-1", "registry:ashby:acme:ashby:acme-1"}
+    assert {j.source_id for j in jobs} == {
+        "registry:ashby:starbridge:ashby:starbridge-1",
+        "registry:ashby:acme:ashby:acme-1",
+    }
 
     boards = {b.board_slug: b for b in get_known_boards(conn)}
     assert boards["starbridge"].last_poll_result_count == 1

@@ -124,8 +124,15 @@ def test_unique_role_id_source_keeps_similar_titles_from_same_company():
     # different roles at one company must survive, however similar the
     # titles read. Same failure the Ashby/Greenhouse skip was added for.
     jobs = [
-        make_job("Senior Python Engineer", "Acme", "https://himalayas.app/jobs/acme-senior-python-engineer", "himalayas"),
-        make_job("Senior Python Engineer II", "Acme", "https://himalayas.app/jobs/acme-senior-python-engineer-ii", "himalayas"),
+        make_job(
+            "Senior Python Engineer", "Acme", "https://himalayas.app/jobs/acme-senior-python-engineer", "himalayas"
+        ),
+        make_job(
+            "Senior Python Engineer II",
+            "Acme",
+            "https://himalayas.app/jobs/acme-senior-python-engineer-ii",
+            "himalayas",
+        ),
     ]
     assert len(dedupe(jobs)) == 2
 
@@ -154,8 +161,12 @@ def test_weworkremotely_placeholder_companies_are_not_merged():
     # separator is missing both jobs share a placeholder company, which
     # scores company_similarity 1.0 and would sail past the guard.
     jobs = [
-        make_job("Backend Engineer", "(company not stated)", "https://weworkremotely.com/remote-jobs/a", "weworkremotely"),
-        make_job("Backend Engineer II", "(company not stated)", "https://weworkremotely.com/remote-jobs/b", "weworkremotely"),
+        make_job(
+            "Backend Engineer", "(company not stated)", "https://weworkremotely.com/remote-jobs/a", "weworkremotely"
+        ),
+        make_job(
+            "Backend Engineer II", "(company not stated)", "https://weworkremotely.com/remote-jobs/b", "weworkremotely"
+        ),
     ]
     assert len(dedupe(jobs)) == 2
 
@@ -163,8 +174,16 @@ def test_weworkremotely_placeholder_companies_are_not_merged():
 def test_lever_expansion_roles_not_merged():
     # Same guarantee Ashby/Greenhouse already had, extended to Lever.
     jobs = [
-        make_job("Account Executive", "Acme", "https://jobs.lever.co/acme/aaa", "hn_whoishiring", source_id="42:lever:aaa"),
-        make_job("Account Executive - NYC", "Acme", "https://jobs.lever.co/acme/bbb", "hn_whoishiring", source_id="42:lever:bbb"),
+        make_job(
+            "Account Executive", "Acme", "https://jobs.lever.co/acme/aaa", "hn_whoishiring", source_id="42:lever:aaa"
+        ),
+        make_job(
+            "Account Executive - NYC",
+            "Acme",
+            "https://jobs.lever.co/acme/bbb",
+            "hn_whoishiring",
+            source_id="42:lever:bbb",
+        ),
     ]
     assert len(dedupe(jobs)) == 2
 
@@ -186,11 +205,17 @@ def test_bulleted_role_link_jobs_not_merged():
     # fuzzy-merged into each other just for having similar titles.
     jobs = [
         make_job(
-            "Senior Full-Stack Engineer", "Mitte", "https://mitte.ai/careers/role/aaa", "hn_whoishiring",
+            "Senior Full-Stack Engineer",
+            "Mitte",
+            "https://mitte.ai/careers/role/aaa",
+            "hn_whoishiring",
             source_id="42:bullet:0",
         ),
         make_job(
-            "Senior Backend Engineer", "Mitte", "https://mitte.ai/careers/role/bbb", "hn_whoishiring",
+            "Senior Backend Engineer",
+            "Mitte",
+            "https://mitte.ai/careers/role/bbb",
+            "hn_whoishiring",
             source_id="42:bullet:1",
         ),
     ]

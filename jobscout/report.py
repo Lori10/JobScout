@@ -49,9 +49,7 @@ def print_summary(
     print()
 
     rankable = [
-        j
-        for j in jobs
-        if effective_bucket(j) in ("eligible", "needs_review") and (j.score or 0) >= min_score_threshold
+        j for j in jobs if effective_bucket(j) in ("eligible", "needs_review") and (j.score or 0) >= min_score_threshold
     ]
     top_jobs = sorted(rankable, key=lambda j: j.score or 0, reverse=True)[:top_n]
 

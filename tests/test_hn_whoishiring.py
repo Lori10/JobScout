@@ -3,7 +3,9 @@ from jobscout.models import Job
 
 
 def test_standard_company_role_location_format():
-    first_line = "Snout https://snout.com/ | Multiple Engineering + Product Roles | Remote US or Ontario, Canada | Full Time"
+    first_line = (
+        "Snout https://snout.com/ | Multiple Engineering + Product Roles | Remote US or Ontario, Canada | Full Time"
+    )
     company, title = _parse_company_and_title(first_line)
     assert company == "Snout https://snout.com/"
     assert title == "Multiple Engineering + Product Roles"
@@ -12,7 +14,9 @@ def test_standard_company_role_location_format():
 def test_salary_before_role_skipped():
     # Real example: posters don't use a consistent field order — here
     # salary comes right after the company name, before the actual role.
-    first_line = "SmarterDx | 150-250k+ + equity + benefits | Remote (US only) | Multiple roles | https://smarterdx.com/careers"
+    first_line = (
+        "SmarterDx | 150-250k+ + equity + benefits | Remote (US only) | Multiple roles | https://smarterdx.com/careers"
+    )
     company, title = _parse_company_and_title(first_line)
     assert company == "SmarterDx"
     assert title == "Multiple roles"
@@ -171,7 +175,9 @@ def test_expand_bundled_board_uses_resolved_cache_instead_of_calling_resolve_boa
     monkeypatch.setattr("jobscout.fetchers.hn_whoishiring.resolve_board", boom)
     monkeypatch.setattr(
         "jobscout.fetchers.hn_whoishiring.fetch_board_postings",
-        lambda platform, slug: [{"id": "a1", "title": "AI Engineer", "jobUrl": "https://jobs.ashbyhq.com/starbridge/a1"}],
+        lambda platform, slug: [
+            {"id": "a1", "title": "AI Engineer", "jobUrl": "https://jobs.ashbyhq.com/starbridge/a1"}
+        ],
     )
 
     cache = {"https://starbridge.ai/careers": ("ashby", "starbridge")}
@@ -197,7 +203,9 @@ def test_expand_bundled_board_resolves_redirect_to_a_board(monkeypatch):
     monkeypatch.setattr("jobscout.fetchers.hn_whoishiring.resolve_board", lambda url: ("ashby", "starbridge"))
     monkeypatch.setattr(
         "jobscout.fetchers.hn_whoishiring.fetch_board_postings",
-        lambda platform, slug: [{"id": "a1", "title": "AI Engineer | NYC", "jobUrl": "https://jobs.ashbyhq.com/starbridge/a1"}],
+        lambda platform, slug: [
+            {"id": "a1", "title": "AI Engineer | NYC", "jobUrl": "https://jobs.ashbyhq.com/starbridge/a1"}
+        ],
     )
 
     expanded = fetcher._expand_bundled_board(job, {"id": 1})
@@ -310,6 +318,7 @@ def test_url_picks_apply_link_not_an_earlier_blog_link_in_the_body():
     job = fetcher._parse_comment(comment)
     assert job is not None
     assert job.url == "https://langfuse.com/careers"
+
 
 # --- Bullet-listed role names recovering the placeholder title ---
 
@@ -646,9 +655,7 @@ def test_fetch_falls_back_to_bulleted_role_links_when_no_board_found(monkeypatch
             },
         )(),
     )
-    monkeypatch.setattr(
-        "jobscout.fetchers.hn_whoishiring.resolve_board", lambda url: None
-    )
+    monkeypatch.setattr("jobscout.fetchers.hn_whoishiring.resolve_board", lambda url: None)
     fetcher._find_latest_thread_id = lambda: "1"
     jobs = fetcher.fetch()
     assert len(jobs) == 2

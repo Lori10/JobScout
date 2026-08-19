@@ -79,7 +79,9 @@ def test_search_query_targets_the_freelancer_thread(monkeypatch):
             pass
 
         def json(self):
-            return {"hits": [{"title": "Ask HN: Freelancer? Seeking freelancer? (August 2026)", "objectID": "49157021"}]}
+            return {
+                "hits": [{"title": "Ask HN: Freelancer? Seeking freelancer? (August 2026)", "objectID": "49157021"}]
+            }
 
     def fake_get(url, params=None, timeout=None):
         seen.update(params)

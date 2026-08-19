@@ -35,7 +35,13 @@ _FREELANCE_PHRASES = [
     "contract position",
     "freiberufler",
 ]
-_EMPLOYMENT_PHRASES = ["full-time employment", "permanent position", "full time employee", "permanent role", "full time"]
+_EMPLOYMENT_PHRASES = [
+    "full-time employment",
+    "permanent position",
+    "full time employee",
+    "permanent role",
+    "full time",
+]
 
 # Public: reused by ai_ranker.py so eligibility_confidence stays a single
 # deterministic mapping owned here, rather than something an LLM guesses.
@@ -156,7 +162,12 @@ def score_job(job: Job, ranker_config: RankerConfig, filter_config: FilterConfig
         penalty = float(ranker_config.near_miss_penalty)
         red_flags.append("needs_review bucket: eligibility ambiguous, score penalized")
 
-    max_possible = 40.0 + ranker_config.title_match_bonus + ranker_config.positive_signal_bonus_cap + ranker_config.recency_bonus_max
+    max_possible = (
+        40.0
+        + ranker_config.title_match_bonus
+        + ranker_config.positive_signal_bonus_cap
+        + ranker_config.recency_bonus_max
+    )
     raw = keyword_score + title_bonus + positive_bonus + recency_bonus - penalty
     score = round((raw / max_possible) * 100) if max_possible else 0
     score = max(0, min(100, score))

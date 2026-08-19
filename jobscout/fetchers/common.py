@@ -39,7 +39,9 @@ _APPLY_PATH_RE = re.compile(r"/(careers?|jobs?|apply|positions?|join(-us)?)(/|$|
 # Cue phrases that, immediately before a URL, mark it as the apply link
 # rather than an incidental blog/handbook/about-page link mentioned earlier
 # in the same freeform text.
-_APPLY_CONTEXT_RE = re.compile(r"apply|careers?|open\s+roles?|open\s+positions?|job\s+board|hiring\s+page", re.IGNORECASE)
+_APPLY_CONTEXT_RE = re.compile(
+    r"apply|careers?|open\s+roles?|open\s+positions?|job\s+board|hiring\s+page", re.IGNORECASE
+)
 _APPLY_CONTEXT_WINDOW_CHARS = 60
 
 

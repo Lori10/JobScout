@@ -51,15 +51,15 @@ def poll_known_boards(conn: sqlite3.Connection, *, max_workers: int = DEFAULT_MA
 
     jobs: list[Job] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_board = {pool.submit(fetch_board_postings, board.platform, board.board_slug): board for board in boards}
+        future_to_board = {
+            pool.submit(fetch_board_postings, board.platform, board.board_slug): board for board in boards
+        }
         for future in concurrent.futures.as_completed(future_to_board):
             board = future_to_board[future]
             try:
                 postings = future.result()
             except Exception:
-                logger.warning(
-                    "board_registry: failed to poll %s/%s", board.platform, board.board_slug, exc_info=True
-                )
+                logger.warning("board_registry: failed to poll %s/%s", board.platform, board.board_slug, exc_info=True)
                 postings = []
             jobs.extend(_postings_to_jobs(board, postings))
             try:

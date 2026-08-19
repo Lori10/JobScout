@@ -93,7 +93,9 @@ def test_seed_from_github_lists_detect_board_direct_hit(conn, monkeypatch):
         lambda *a, **k: _FakeResponse("[Jobs](https://boards.greenhouse.io/sourcegraph91)"),
     )
     upserted = seed_from_github_lists(conn, config=_config())
-    assert upserted == [("greenhouse", "sourcegraph91", "established-remote", "https://boards.greenhouse.io/sourcegraph91")]
+    assert upserted == [
+        ("greenhouse", "sourcegraph91", "established-remote", "https://boards.greenhouse.io/sourcegraph91")
+    ]
     boards = get_known_boards(conn)
     assert len(boards) == 1
     assert boards[0].discovered_via == "github:established-remote"
@@ -163,9 +165,7 @@ def _fake_repo_get(tree_paths):
 
 
 def test_seed_from_repo_source_direct_hit(conn, monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.github_lists.requests.get", _fake_repo_get(["src/companies/acme.md"])
-    )
+    monkeypatch.setattr("jobscout.fetchers.github_lists.requests.get", _fake_repo_get(["src/companies/acme.md"]))
     upserted = seed_from_github_lists(conn, config=_repo_config())
     assert upserted == [("greenhouse", "acme", "test-repo", "https://boards.greenhouse.io/acme")]
     boards = get_known_boards(conn)

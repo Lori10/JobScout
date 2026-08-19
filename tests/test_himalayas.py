@@ -90,7 +90,9 @@ def test_url_prefers_guid_over_application_link():
     # identity, and dedup_key must not depend on where a company hosts its
     # board.
     job = HimalayasFetcher()._parse_item(
-        make_item(applicationLink="https://jobs.lever.co/mercor/abc", guid="https://himalayas.app/companies/mercor/jobs/x")
+        make_item(
+            applicationLink="https://jobs.lever.co/mercor/abc", guid="https://himalayas.app/companies/mercor/jobs/x"
+        )
     )
     assert job.url == "https://himalayas.app/companies/mercor/jobs/x"
 

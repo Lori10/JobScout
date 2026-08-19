@@ -1,10 +1,10 @@
-from jobscout.models import ContractTypeGuess
 from jobscout.fetchers.ats_boards import (
     detect_board,
     fetch_board_postings,
     posting_to_job,
     resolve_board,
 )
+from jobscout.models import ContractTypeGuess
 
 
 class FakeResponse:
@@ -266,7 +266,9 @@ def test_ashby_posting_to_job_source_defaults_to_hn_whoishiring():
 
 def test_ashby_posting_to_job_source_param_threaded():
     raw = {"id": "1", "title": "Role", "jobUrl": "https://jobs.ashbyhq.com/acme/1"}
-    job = posting_to_job("ashby", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry")
+    job = posting_to_job(
+        "ashby", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry"
+    )
     assert job.source == "ats_board_registry"
 
 
@@ -303,7 +305,9 @@ def test_greenhouse_posting_to_job_source_defaults_to_hn_whoishiring():
 
 def test_greenhouse_posting_to_job_source_param_threaded():
     raw = {"id": 1, "absolute_url": "https://acme.com/jobs/1", "title": "Role"}
-    job = posting_to_job("greenhouse", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry")
+    job = posting_to_job(
+        "greenhouse", raw, company="Acme", comment_id=1, fallback_posted_date=None, source="ats_board_registry"
+    )
     assert job.source == "ats_board_registry"
 
 
@@ -385,7 +389,9 @@ def test_fetch_lever_postings_handles_empty_board(monkeypatch):
 
 
 def test_lever_posting_to_job_maps_fields():
-    job = posting_to_job("lever", make_lever_posting(), company="Match Group", comment_id=123, fallback_posted_date=None)
+    job = posting_to_job(
+        "lever", make_lever_posting(), company="Match Group", comment_id=123, fallback_posted_date=None
+    )
     assert job is not None
     assert job.title == "Android Engineer III"
     assert job.company == "Match Group"
@@ -459,8 +465,20 @@ def test_lever_workplace_type_reaches_location_text():
 
 
 def test_lever_posting_to_job_returns_none_without_url_or_title():
-    assert posting_to_job("lever", make_lever_posting(hostedUrl=None, applyUrl=None), company="X", comment_id=1, fallback_posted_date=None) is None
-    assert posting_to_job("lever", make_lever_posting(text=None), company="X", comment_id=1, fallback_posted_date=None) is None
+    assert (
+        posting_to_job(
+            "lever",
+            make_lever_posting(hostedUrl=None, applyUrl=None),
+            company="X",
+            comment_id=1,
+            fallback_posted_date=None,
+        )
+        is None
+    )
+    assert (
+        posting_to_job("lever", make_lever_posting(text=None), company="X", comment_id=1, fallback_posted_date=None)
+        is None
+    )
 
 
 def test_lever_posting_to_job_source_defaults_to_hn_whoishiring():
@@ -592,9 +610,7 @@ def test_workable_posting_to_job_prefers_board_company_name_over_comment_company
     # Real case this exists for: the HN comment's header had no "|"
     # delimiters, so the comment-parsed "company" was a duplicated 80-char
     # snippet — Workable's own board-level name is far more trustworthy.
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job(
         "workable",
         make_workable_posting(),
@@ -606,9 +622,7 @@ def test_workable_posting_to_job_prefers_board_company_name_over_comment_company
 
 
 def test_workable_posting_to_job_falls_back_to_comment_company_when_board_name_missing(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job(
         "workable",
         make_workable_posting(_board_company_name=None),
@@ -656,9 +670,7 @@ def test_workable_posting_to_job_degrades_gracefully_without_snippet(monkeypatch
 
 
 def test_workable_posting_to_job_maps_location_tags_and_contract_type(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job(
         "workable",
         make_workable_posting(country="Germany", city="Berlin", department="Engineering", employment_type="Contract"),
@@ -674,9 +686,7 @@ def test_workable_posting_to_job_maps_location_tags_and_contract_type(monkeypatc
 
 
 def test_workable_posting_to_job_posted_date_prefers_published_over_created(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job(
         "workable", make_workable_posting(), company="Sumble Inc", comment_id=1, fallback_posted_date=None
     )
@@ -686,9 +696,7 @@ def test_workable_posting_to_job_posted_date_prefers_published_over_created(monk
 def test_workable_posting_to_job_falls_back_to_fallback_date_when_both_missing(monkeypatch):
     from datetime import datetime, timezone
 
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     fallback = datetime(2026, 1, 1, tzinfo=timezone.utc)
     job = posting_to_job(
         "workable",
@@ -701,25 +709,29 @@ def test_workable_posting_to_job_falls_back_to_fallback_date_when_both_missing(m
 
 
 def test_workable_posting_to_job_returns_none_without_url_or_title(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
+    assert (
+        posting_to_job(
+            "workable", make_workable_posting(url=None), company="X", comment_id=1, fallback_posted_date=None
+        )
+        is None
     )
-    assert posting_to_job("workable", make_workable_posting(url=None), company="X", comment_id=1, fallback_posted_date=None) is None
-    assert posting_to_job("workable", make_workable_posting(title=None), company="X", comment_id=1, fallback_posted_date=None) is None
+    assert (
+        posting_to_job(
+            "workable", make_workable_posting(title=None), company="X", comment_id=1, fallback_posted_date=None
+        )
+        is None
+    )
 
 
 def test_workable_posting_to_job_source_defaults_to_hn_whoishiring(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job("workable", make_workable_posting(), company="X", comment_id=1, fallback_posted_date=None)
     assert job.source == "hn_whoishiring"
 
 
 def test_workable_posting_to_job_source_param_threaded(monkeypatch):
-    monkeypatch.setattr(
-        "jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>")
-    )
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeBodyResponse("<html></html>"))
     job = posting_to_job(
         "workable",
         make_workable_posting(),

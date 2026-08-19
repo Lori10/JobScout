@@ -78,11 +78,13 @@ def test_extract_apply_url_recovers_full_url_when_display_text_is_truncated():
     # strip_html() discards the tag, the plain text only has the
     # truncated version - extract_apply_url must prefer the full href.
     plain_text = (
-        "Apply here: https://jobs.ashbyhq.com/TonicAI/048a114d-fb5f-46ef-b0ff-b62... "
-        "but also shoot me an email."
+        "Apply here: https://jobs.ashbyhq.com/TonicAI/048a114d-fb5f-46ef-b0ff-b62... but also shoot me an email."
     )
     href_urls = ["https://jobs.ashbyhq.com/TonicAI/048a114d-fb5f-46ef-b0ff-b62365ff5fc2"]
-    assert extract_apply_url(plain_text, href_urls) == "https://jobs.ashbyhq.com/TonicAI/048a114d-fb5f-46ef-b0ff-b62365ff5fc2"
+    assert (
+        extract_apply_url(plain_text, href_urls)
+        == "https://jobs.ashbyhq.com/TonicAI/048a114d-fb5f-46ef-b0ff-b62365ff5fc2"
+    )
 
 
 def test_extract_apply_url_ignores_href_urls_not_matching_any_candidate():

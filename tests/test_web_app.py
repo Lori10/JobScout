@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from jobscout.db import init_db, upsert_job
-from jobscout.models import EligibilityBucket, Job, JobStatus, RankingSource, SeniorityFit
+from jobscout.models import EligibilityBucket, Job, RankingSource, SeniorityFit
 from jobscout.web.app import create_app
 
 

@@ -63,7 +63,9 @@ def test_parse_item_falls_back_to_excerpt_when_description_empty():
 
 def test_html_entities_unescaped_in_tags_title_and_company():
     job = JobicyFetcher()._parse_item(
-        make_item(jobTitle="R&amp;D Engineer", companyName="Smith &amp; Co", jobIndustry=["Project &amp; Program Management"])
+        make_item(
+            jobTitle="R&amp;D Engineer", companyName="Smith &amp; Co", jobIndustry=["Project &amp; Program Management"]
+        )
     )
     assert job.title == "R&D Engineer"
     assert job.company == "Smith & Co"
@@ -78,7 +80,10 @@ def test_job_type_becomes_contract_type_guess():
 
 
 def test_job_geo_becomes_location_text():
-    assert JobicyFetcher()._parse_item(make_item(jobGeo="Europe,  Netherlands")).location_text == "Europe,  Netherlands only"
+    assert (
+        JobicyFetcher()._parse_item(make_item(jobGeo="Europe,  Netherlands")).location_text
+        == "Europe,  Netherlands only"
+    )
     assert JobicyFetcher()._parse_item(make_item(jobGeo="")).location_text is None
 
 
@@ -143,6 +148,8 @@ def test_fetch_returns_empty_on_unexpected_shape(monkeypatch):
 
 def test_fetch_survives_one_malformed_item(monkeypatch):
     monkeypatch.setattr(
-        jobicy_module.requests, "get", lambda *a, **k: FakeResponse({"jobs": [None, make_item(), make_item(jobTitle="")]})
+        jobicy_module.requests,
+        "get",
+        lambda *a, **k: FakeResponse({"jobs": [None, make_item(), make_item(jobTitle="")]}),
     )
     assert len(JobicyFetcher().fetch()) == 1

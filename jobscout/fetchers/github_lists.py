@@ -213,8 +213,7 @@ def _seed_one_repo_source(
     candidates: list[str] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=file_max_workers) as pool:
         future_to_path = {
-            pool.submit(_fetch_frontmatter_url, raw_base + path, repo_source.frontmatter_field): path
-            for path in paths
+            pool.submit(_fetch_frontmatter_url, raw_base + path, repo_source.frontmatter_field): path for path in paths
         }
         for future in concurrent.futures.as_completed(future_to_path):
             path = future_to_path[future]

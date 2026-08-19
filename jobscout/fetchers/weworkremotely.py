@@ -117,7 +117,7 @@ class WeWorkRemotelyFetcher:
 
 
 def _split_company_and_title(raw_title: str) -> tuple[str, str]:
-    """"Grailed: Senior Backend Software Engineer" -> ("Grailed", "Senior
+    """ "Grailed: Senior Backend Software Engineer" -> ("Grailed", "Senior
     Backend Software Engineer"). Splits on the FIRST ": " only, so a role
     title containing its own colon keeps the rest intact. Falls back to the
     whole string as the title when there's no separator or either side is

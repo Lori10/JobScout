@@ -146,9 +146,7 @@ class HNWhoIsHiringFetcher:
         of comments can have 100+ such URLs. A set naturally dedupes
         repeated URLs across comments too."""
         urls = {
-            job.url
-            for job in jobs
-            if detect_board(job.url) is None and not job.url.startswith(_HN_PERMALINK_PREFIX)
+            job.url for job in jobs if detect_board(job.url) is None and not job.url.startswith(_HN_PERMALINK_PREFIX)
         }
         if not urls:
             return {}

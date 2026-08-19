@@ -249,7 +249,9 @@ def _row_to_job(row: sqlite3.Row) -> Job:
     )
 
 
-_SAFE_ORDER_BY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?(\s*,\s*[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?)*$")
+_SAFE_ORDER_BY_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?(\s*,\s*[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?)*$"
+)
 
 
 def get_jobs(conn: sqlite3.Connection, order_by: str = "score DESC") -> list[Job]:
@@ -333,12 +335,9 @@ def get_known_boards(
     return [_row_to_known_board(row) for row in cursor.fetchall()]
 
 
-def record_board_poll(
-    conn: sqlite3.Connection, *, platform: str, board_slug: str, result_count: int
-) -> None:
+def record_board_poll(conn: sqlite3.Connection, *, platform: str, board_slug: str, result_count: int) -> None:
     conn.execute(
-        "UPDATE known_boards SET last_polled_at = ?, last_poll_result_count = ? "
-        "WHERE platform = ? AND board_slug = ?",
+        "UPDATE known_boards SET last_polled_at = ?, last_poll_result_count = ? WHERE platform = ? AND board_slug = ?",
         (datetime.now(timezone.utc).isoformat(), result_count, platform, board_slug),
     )
     conn.commit()
@@ -353,9 +352,7 @@ def set_board_enabled(conn: sqlite3.Connection, *, platform: str, board_slug: st
 
 
 def get_last_scan(conn: sqlite3.Connection, source_name: str) -> datetime | None:
-    row = conn.execute(
-        "SELECT last_scanned_at FROM github_list_scans WHERE source_name = ?", (source_name,)
-    ).fetchone()
+    row = conn.execute("SELECT last_scanned_at FROM github_list_scans WHERE source_name = ?", (source_name,)).fetchone()
     return _parse_iso(row["last_scanned_at"]) if row else None
 
 

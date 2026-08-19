@@ -18,6 +18,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "httpx>=0.27",
+    "ruff>=0.6",
 ]
 
 [build-system]
@@ -26,3 +27,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["jobscout", "jobscout.fetchers", "jobscout.web", "jobscout.llm"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+"jobscout/report.py" = ["E501"]

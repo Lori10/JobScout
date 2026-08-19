@@ -64,7 +64,12 @@ class HimalayasFetcher:
                 response.raise_for_status()
                 data = response.json()
             except Exception:
-                logger.warning("himalayas: fetch failed at offset %d, keeping %d jobs so far", offset, len(jobs), exc_info=True)
+                logger.warning(
+                    "himalayas: fetch failed at offset %d, keeping %d jobs so far",
+                    offset,
+                    len(jobs),
+                    exc_info=True,
+                )
                 break
 
             if not isinstance(data, dict):

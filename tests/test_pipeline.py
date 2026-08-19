@@ -223,11 +223,21 @@ def test_run_polls_known_boards_and_includes_results_in_dedupe(paths, monkeypatc
     config_path, profile_path, db_path, report_path = paths
     _write_yaml(config_path, _base_config(board_registry={"enabled": True}))
     conn = init_db(db_path)
-    upsert_known_board(conn, platform="ashby", board_slug="starbridge", company="Starbridge", discovered_via="hn_whoishiring", discovered_url=None)
+    upsert_known_board(
+        conn,
+        platform="ashby",
+        board_slug="starbridge",
+        company="Starbridge",
+        discovered_via="hn_whoishiring",
+        discovered_url=None,
+    )
     monkeypatch.setattr(pipeline_module, "FETCHER_REGISTRY", {})
 
     registry_job = make_job(
-        title="Registry Role", url="https://jobs.ashbyhq.com/starbridge/1", dedup_key="https://jobs.ashbyhq.com/starbridge/1", source="ats_board_registry"
+        title="Registry Role",
+        url="https://jobs.ashbyhq.com/starbridge/1",
+        dedup_key="https://jobs.ashbyhq.com/starbridge/1",
+        source="ats_board_registry",
     )
     monkeypatch.setattr(pipeline_module, "poll_known_boards", lambda conn, max_workers: [registry_job])
 
