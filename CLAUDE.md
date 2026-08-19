@@ -20,6 +20,10 @@ wsl.exe -d Ubuntu -- bash -lc "source \$HOME/.nvm/nvm.sh && cd /home/lori28/JobS
 
 `scripts/dev.sh` already sources it automatically.
 
+**GitHub has two independent auth mechanisms in this environment — don't conflate them.**
+- **`git` (clone/fetch/push)** uses SSH key auth against `git@github.com:Lori10/JobScout.git` and is already trusted/working — `ssh -T git@github.com` returns "Hi Lori10/JobScout! You've successfully authenticated". If a fresh environment ever hits a host-key-verification prompt (which hangs non-interactively), resolve it once with `ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -T git@github.com` rather than retrying the git command — that's what accepts GitHub's host key into `known_hosts` non-interactively; it does not by itself prove the SSH key is authorized, so check the "Hi \<user\>!" line in its output before assuming push access works.
+- **`gh` (PR/issue/API operations)** uses a separate OAuth token and knows nothing about the SSH key above — a working `git push` does not imply `gh` is authenticated. Check first with `gh auth status`; if not logged in, `gh auth login --hostname github.com --git-protocol ssh --web` prints a one-time code and a `https://github.com/login/device` URL that only the user can complete in a browser — hand both to the user rather than attempting to complete the flow autonomously. `gh` itself may not be installed (not on `apt` without passwordless `sudo`, same constraint as Node) — the binary tarball approach that worked here: download from `https://api.github.com/repos/cli/cli/releases/latest`, extract, and drop the `gh` binary in `~/.local/bin` (already on `PATH`, no `sudo` needed).
+
 ## Git workflow
 
 This repo uses a solo-dev branch-per-change workflow. Two PreToolUse hooks enforce the hard rules below as a safety net — follow them proactively rather than relying on the hooks to catch a mistake.
