@@ -1,0 +1,31 @@
+# Fly.io app config for the JobScout dashboard.
+#
+# `app` must be globally unique across all Fly accounts — if this name is
+# taken, rename it here (and pass the same name to `fly apps create`).
+# CD deploys with `flyctl deploy --image ...`, so there is deliberately no
+# [build] section: Fly never builds from source, only runs the image CD
+# already pushed to GHCR.
+app = "jobscout-lori10"
+primary_region = "fra"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/api/jobs"
+    timeout = "15s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[[mounts]]
+  source = "jobscout_data"
+  destination = "/app/data"
