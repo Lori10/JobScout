@@ -217,6 +217,40 @@ jobscout.web.app:app --reload` and `cd frontend && npm run dev` in two
 separate terminals, if you'd rather see each process's output on its
 own.)
 
+### Run with Docker
+
+An alternative to the `.venv`-based setup above: build and run the
+dashboard in a container with Docker Compose. `config.yaml`,
+`profile.yaml`, and (if using AI ranking) `.env` must already exist on
+the host — they're bind-mounted read-only into the container, not baked
+into the image. `report.html` is also bind-mounted; since Docker creates
+an empty directory at a nonexistent bind-mount file path, run `touch
+report.html` first if it doesn't already exist (or drop that line from
+`docker-compose.yml` if you don't need the report through the
+container).
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8000`. Jobs persist in `./data/jobscout.db` on
+the host across restarts. The non-root container user (uid 1000) needs
+write access to `./data` and `./report.html` on the host — if
+`docker compose up` fails with a permission error on first run:
+
+```bash
+chown -R 1000:1000 data/ report.html
+```
+
+To trigger a fetch without using the dashboard's "Fetch now" button:
+
+```bash
+docker compose exec jobscout python -m jobscout run
+```
+
+This setup has no scheduling — fetches are manual, via the dashboard
+button or the command above.
+
 ## AI-assisted ranking (Phase 3)
 
 Set `ranking_mode: ai` in `config.yaml` to re-score eligible/relevant jobs
