@@ -6,8 +6,15 @@ services:
       - "8000:8000"
     # CMD in the image already runs `python -m jobscout serve --host 0.0.0.0`
     # with JOBSCOUT_CONFIG_PATH/JOBSCOUT_PROFILE_PATH/JOBSCOUT_DB_PATH/
-    # JOBSCOUT_REPORT_PATH defaulting to the paths bind-mounted below.
+    # JOBSCOUT_REPORT_PATH defaulting to the paths bind-mounted below, unless
+    # overridden by `environment:` below. JOBSCOUT_DB_PATH here points at the
+    # postgres service instead of the default sqlite file path.
     # Override `command:` here only if you need different flags without rebuilding.
+    environment:
+      JOBSCOUT_DB_PATH: postgresql://jobscout:jobscout@postgres:5432/jobscout
+    depends_on:
+      postgres:
+        condition: service_healthy
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./profile.yaml:/app/profile.yaml:ro
@@ -15,3 +22,31 @@ services:
       - ./data:/app/data
       - ./report.html:/app/report.html
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobscout
+      POSTGRES_PASSWORD: jobscout
+      POSTGRES_DB: jobscout
+    volumes:
+      - jobscout-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobscout -d jobscout"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # No `ports:` mapping — reachable only from other services on the
+    # default compose network (jobscout, adminer), never exposed to the
+    # host/internet. The throwaway jobscout/jobscout creds above are fine to
+    # commit as a result.
+
+  adminer:
+    image: adminer:latest
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  jobscout-postgres-data:
