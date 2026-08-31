@@ -22,14 +22,15 @@ def main() -> None:
         help="Logging verbosity: DEBUG, INFO, WARNING, ERROR. Default: INFO",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("run", help="Fetch, filter, rank, store, and report on jobs")
+    run_parser = subparsers.add_parser("run", help="Fetch, filter, rank, store, and report on jobs")
+    run_parser.add_argument("--db-path", default=os.environ.get("JOBSCOUT_DB_PATH", "data/jobscout.db"))
 
     serve_parser = subparsers.add_parser("serve", help="Start the dashboard (FastAPI + React) web server")
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8000)
     serve_parser.add_argument("--config", default="config.yaml")
     serve_parser.add_argument("--profile", default="profile.yaml")
-    serve_parser.add_argument("--db-path", default="data/jobscout.db")
+    serve_parser.add_argument("--db-path", default=os.environ.get("JOBSCOUT_DB_PATH", "data/jobscout.db"))
     serve_parser.add_argument("--report-path", default="report.html")
 
     args = parser.parse_args()
@@ -41,7 +42,7 @@ def main() -> None:
     if args.command == "run":
         from jobscout.pipeline import run
 
-        run()
+        run(db_path=args.db_path)
     elif args.command == "serve":
         import uvicorn
 
