@@ -1,9 +1,14 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import psycopg2
+import psycopg2.extras
 import pytest
 
 from jobscout.db import (
+    SCHEMA,
+    SCHEMA_POSTGRES,
     get_job_by_dedup_key,
     get_jobs,
     get_known_boards,
@@ -19,15 +24,29 @@ from jobscout.db import (
 from jobscout.models import EligibilityBucket, Job, JobStatus, RankingSource, SeniorityFit
 
 
-@pytest.fixture
-def conn():
-    connection = sqlite3.connect(":memory:")
-    connection.row_factory = sqlite3.Row
-    from jobscout.db import SCHEMA
-
-    connection.executescript(SCHEMA)
-    connection.commit()
-    return connection
+@pytest.fixture(params=["sqlite", "postgres"])
+def conn(request):
+    if request.param == "postgres":
+        dsn = os.environ.get("TEST_DATABASE_URL")
+        if not dsn:
+            pytest.skip("TEST_DATABASE_URL not set; skipping Postgres backend tests")
+        connection = psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+        with connection.cursor() as cur:
+            cur.execute(SCHEMA_POSTGRES)
+            # Postgres is a shared, persistent server (unlike sqlite ":memory:"),
+            # and CREATE TABLE IF NOT EXISTS leaves old rows in place across
+            # test runs/tests — truncate for a clean slate before every test.
+            cur.execute("TRUNCATE jobs, known_boards, github_list_scans RESTART IDENTITY CASCADE")
+        connection.commit()
+        yield connection
+        connection.close()
+    else:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+        connection.executescript(SCHEMA)
+        connection.commit()
+        yield connection
+        connection.close()
 
 
 def make_job(**overrides) -> Job:
