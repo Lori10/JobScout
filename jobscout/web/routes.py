@@ -7,13 +7,12 @@ filtering, or ranking logic lives here.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from jobscout import pipeline
-from jobscout.db import get_jobs, init_db, set_status
+from jobscout.db import DBConnection, get_jobs, init_db, set_status
 from jobscout.web.schemas import JobOut, RerankIn, StatusUpdateIn
 
 logger = logging.getLogger(__name__)
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 
 
-def get_db(request: Request) -> Iterator[sqlite3.Connection]:
+def get_db(request: Request) -> Iterator[DBConnection]:
     conn = init_db(request.app.state.db_path)
     try:
         yield conn
@@ -30,12 +29,12 @@ def get_db(request: Request) -> Iterator[sqlite3.Connection]:
 
 
 @router.get("/jobs", response_model=list[JobOut])
-def list_jobs(conn: sqlite3.Connection = Depends(get_db)) -> list[JobOut]:
+def list_jobs(conn: DBConnection = Depends(get_db)) -> list[JobOut]:
     return [JobOut.model_validate(job) for job in get_jobs(conn)]
 
 
 @router.post("/jobs/status", response_model=JobOut)
-def update_job_status(payload: StatusUpdateIn, conn: sqlite3.Connection = Depends(get_db)) -> JobOut:
+def update_job_status(payload: StatusUpdateIn, conn: DBConnection = Depends(get_db)) -> JobOut:
     set_status(conn, payload.dedup_key, payload.status)
     for job in get_jobs(conn):
         if job.dedup_key == payload.dedup_key:

@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psycopg2
+import psycopg2.extras
+
 from jobscout.models import (
     ApplicationChannel,
     ContractTypeGuess,
@@ -23,6 +26,8 @@ from jobscout.models import (
     RankingSource,
     SeniorityFit,
 )
+
+DBConnection = sqlite3.Connection | psycopg2.extensions.connection
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -62,6 +67,64 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 
 CREATE TABLE IF NOT EXISTS known_boards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    board_slug TEXT NOT NULL,
+    company TEXT,
+    discovered_via TEXT NOT NULL,
+    discovered_url TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    last_polled_at TEXT,
+    last_poll_result_count INTEGER,
+    UNIQUE(platform, board_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_known_boards_enabled ON known_boards(enabled);
+
+CREATE TABLE IF NOT EXISTS github_list_scans (
+    source_name TEXT PRIMARY KEY,
+    last_scanned_at TEXT NOT NULL
+);
+"""
+
+SCHEMA_POSTGRES = """
+CREATE TABLE IF NOT EXISTS jobs (
+    id SERIAL PRIMARY KEY,
+    dedup_key TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL,
+    source_id TEXT,
+    title TEXT NOT NULL,
+    company TEXT NOT NULL,
+    description TEXT NOT NULL,
+    url TEXT NOT NULL,
+    posted_date TEXT,
+    salary_text TEXT,
+    tags TEXT,
+    location_text TEXT,
+    application_channel TEXT NOT NULL DEFAULT 'unknown',
+    eligibility_bucket TEXT NOT NULL DEFAULT 'eligible',
+    eligibility_reason TEXT,
+    is_relevant INTEGER NOT NULL DEFAULT 1,
+    score INTEGER,
+    skill_match INTEGER,
+    eligibility_confidence INTEGER,
+    contract_type_guess TEXT NOT NULL DEFAULT 'unclear',
+    reasons TEXT,
+    red_flags TEXT,
+    ranking_source TEXT NOT NULL DEFAULT 'heuristic',
+    seniority_fit TEXT,
+    status TEXT NOT NULL DEFAULT 'new',
+    first_seen_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    research_brief_path TEXT,
+    outreach_draft_path TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_score ON jobs(score);
+CREATE INDEX IF NOT EXISTS idx_jobs_bucket ON jobs(eligibility_bucket);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+
+CREATE TABLE IF NOT EXISTS known_boards (
+    id SERIAL PRIMARY KEY,
     platform TEXT NOT NULL,
     board_slug TEXT NOT NULL,
     company TEXT,
@@ -144,7 +207,34 @@ class KnownBoard:
     last_poll_result_count: int | None
 
 
-def init_db(path: str | Path = "data/jobscout.db") -> sqlite3.Connection:
+def _is_pg(conn: DBConnection) -> bool:
+    return not isinstance(conn, sqlite3.Connection)
+
+
+def _ph(conn: DBConnection) -> str:
+    return "%s" if _is_pg(conn) else "?"
+
+
+def _named(conn: DBConnection, name: str) -> str:
+    return f"%({name})s" if _is_pg(conn) else f":{name}"
+
+
+def _exec(conn: DBConnection, sql: str, params=None):
+    if _is_pg(conn):
+        cur = conn.cursor()
+        cur.execute(sql, params or {})
+        return cur
+    return conn.execute(sql, params or {})
+
+
+def init_db(path: str | Path = "data/jobscout.db") -> DBConnection:
+    if isinstance(path, str) and (path.startswith("postgres://") or path.startswith("postgresql://")):
+        conn = psycopg2.connect(path, cursor_factory=psycopg2.extras.RealDictCursor)
+        with conn.cursor() as cur:
+            cur.execute(SCHEMA_POSTGRES)
+        conn.commit()
+        return conn
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)
@@ -202,17 +292,17 @@ def _job_to_row(job: Job, now: datetime) -> dict:
     }
 
 
-def upsert_job(conn: sqlite3.Connection, job: Job) -> None:
+def upsert_job(conn: DBConnection, job: Job) -> None:
     now = datetime.now(timezone.utc)
     row = _job_to_row(job, now)
     columns = list(row.keys())
-    placeholders = ", ".join(f":{c}" for c in columns)
+    placeholders = ", ".join(_named(conn, c) for c in columns)
     update_clause = ", ".join(f"{c} = excluded.{c}" for c in _UPDATE_COLUMNS)
     sql = (
         f"INSERT INTO jobs ({', '.join(columns)}) VALUES ({placeholders}) "
         f"ON CONFLICT(dedup_key) DO UPDATE SET {update_clause}"
     )
-    conn.execute(sql, row)
+    _exec(conn, sql, row)
     conn.commit()
 
 
@@ -254,22 +344,24 @@ _SAFE_ORDER_BY_RE = re.compile(
 )
 
 
-def get_jobs(conn: sqlite3.Connection, order_by: str = "score DESC") -> list[Job]:
+def get_jobs(conn: DBConnection, order_by: str = "score DESC") -> list[Job]:
     # order_by is only ever passed literal strings from our own code, but
     # validate anyway rather than interpolating arbitrary input into SQL.
     if not _SAFE_ORDER_BY_RE.match(order_by.strip()):
         raise ValueError(f"unsafe order_by clause: {order_by!r}")
-    cursor = conn.execute(f"SELECT * FROM jobs ORDER BY {order_by}")
+    cursor = _exec(conn, f"SELECT * FROM jobs ORDER BY {order_by}")
     return [_row_to_job(row) for row in cursor.fetchall()]
 
 
-def get_job_by_dedup_key(conn: sqlite3.Connection, dedup_key: str) -> Job | None:
-    row = conn.execute("SELECT * FROM jobs WHERE dedup_key = ?", (dedup_key,)).fetchone()
+def get_job_by_dedup_key(conn: DBConnection, dedup_key: str) -> Job | None:
+    ph = _ph(conn)
+    row = _exec(conn, f"SELECT * FROM jobs WHERE dedup_key = {ph}", (dedup_key,)).fetchone()
     return _row_to_job(row) if row else None
 
 
-def set_status(conn: sqlite3.Connection, dedup_key: str, status: JobStatus) -> None:
-    conn.execute("UPDATE jobs SET status = ? WHERE dedup_key = ?", (status.value, dedup_key))
+def set_status(conn: DBConnection, dedup_key: str, status: JobStatus) -> None:
+    ph = _ph(conn)
+    _exec(conn, f"UPDATE jobs SET status = {ph} WHERE dedup_key = {ph}", (status.value, dedup_key))
     conn.commit()
 
 
@@ -289,7 +381,7 @@ def _row_to_known_board(row: sqlite3.Row) -> KnownBoard:
 
 
 def upsert_known_board(
-    conn: sqlite3.Connection,
+    conn: DBConnection,
     *,
     platform: str,
     board_slug: str,
@@ -309,18 +401,18 @@ def upsert_known_board(
         "last_seen_at": now,
     }
     columns = list(row.keys())
-    placeholders = ", ".join(f":{c}" for c in columns)
+    placeholders = ", ".join(_named(conn, c) for c in columns)
     update_clause = ", ".join(f"{c} = excluded.{c}" for c in _KNOWN_BOARD_UPDATE_COLUMNS)
     sql = (
         f"INSERT INTO known_boards ({', '.join(columns)}) VALUES ({placeholders}) "
         f"ON CONFLICT(platform, board_slug) DO UPDATE SET {update_clause}"
     )
-    conn.execute(sql, row)
+    _exec(conn, sql, row)
     conn.commit()
 
 
 def get_known_boards(
-    conn: sqlite3.Connection,
+    conn: DBConnection,
     *,
     enabled_only: bool = True,
     order_by: str = "platform, board_slug",
@@ -331,34 +423,44 @@ def get_known_boards(
     if enabled_only:
         sql += " WHERE enabled = 1"
     sql += f" ORDER BY {order_by}"
-    cursor = conn.execute(sql)
+    cursor = _exec(conn, sql)
     return [_row_to_known_board(row) for row in cursor.fetchall()]
 
 
-def record_board_poll(conn: sqlite3.Connection, *, platform: str, board_slug: str, result_count: int) -> None:
-    conn.execute(
-        "UPDATE known_boards SET last_polled_at = ?, last_poll_result_count = ? WHERE platform = ? AND board_slug = ?",
+def record_board_poll(conn: DBConnection, *, platform: str, board_slug: str, result_count: int) -> None:
+    ph = _ph(conn)
+    _exec(
+        conn,
+        f"UPDATE known_boards SET last_polled_at = {ph}, last_poll_result_count = {ph} "
+        f"WHERE platform = {ph} AND board_slug = {ph}",
         (datetime.now(timezone.utc).isoformat(), result_count, platform, board_slug),
     )
     conn.commit()
 
 
-def set_board_enabled(conn: sqlite3.Connection, *, platform: str, board_slug: str, enabled: bool) -> None:
-    conn.execute(
-        "UPDATE known_boards SET enabled = ? WHERE platform = ? AND board_slug = ?",
+def set_board_enabled(conn: DBConnection, *, platform: str, board_slug: str, enabled: bool) -> None:
+    ph = _ph(conn)
+    _exec(
+        conn,
+        f"UPDATE known_boards SET enabled = {ph} WHERE platform = {ph} AND board_slug = {ph}",
         (1 if enabled else 0, platform, board_slug),
     )
     conn.commit()
 
 
-def get_last_scan(conn: sqlite3.Connection, source_name: str) -> datetime | None:
-    row = conn.execute("SELECT last_scanned_at FROM github_list_scans WHERE source_name = ?", (source_name,)).fetchone()
+def get_last_scan(conn: DBConnection, source_name: str) -> datetime | None:
+    ph = _ph(conn)
+    row = _exec(
+        conn, f"SELECT last_scanned_at FROM github_list_scans WHERE source_name = {ph}", (source_name,)
+    ).fetchone()
     return _parse_iso(row["last_scanned_at"]) if row else None
 
 
-def record_scan(conn: sqlite3.Connection, source_name: str, when: datetime) -> None:
-    conn.execute(
-        "INSERT INTO github_list_scans (source_name, last_scanned_at) VALUES (?, ?) "
+def record_scan(conn: DBConnection, source_name: str, when: datetime) -> None:
+    ph = _ph(conn)
+    _exec(
+        conn,
+        f"INSERT INTO github_list_scans (source_name, last_scanned_at) VALUES ({ph}, {ph}) "
         "ON CONFLICT(source_name) DO UPDATE SET last_scanned_at = excluded.last_scanned_at",
         (source_name, when.isoformat()),
     )

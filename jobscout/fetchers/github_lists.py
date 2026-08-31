@@ -38,14 +38,13 @@ from __future__ import annotations
 import concurrent.futures
 import logging
 import re
-import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import requests
 import yaml
 
 from jobscout.config import GitHubListsConfig, GitHubRepoSource
-from jobscout.db import get_last_scan, record_scan, upsert_known_board
+from jobscout.db import DBConnection, get_last_scan, record_scan, upsert_known_board
 from jobscout.fetchers.ats_boards import detect_board, resolve_board
 from jobscout.fetchers.common import URL_RE
 
@@ -68,7 +67,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?\n)---\s*\n", re.DOTALL)
 
 
 def seed_from_github_lists(
-    conn: sqlite3.Connection,
+    conn: DBConnection,
     *,
     config: GitHubListsConfig,
     max_workers: int = DEFAULT_MAX_WORKERS,
@@ -115,7 +114,7 @@ def seed_from_github_lists(
 
 
 def _seed_one_source(
-    conn: sqlite3.Connection,
+    conn: DBConnection,
     *,
     source_name: str,
     readme_url: str,
@@ -170,7 +169,7 @@ def _seed_one_source(
 
 
 def _seed_one_repo_source(
-    conn: sqlite3.Connection,
+    conn: DBConnection,
     *,
     repo_source: GitHubRepoSource,
     scan_interval_days: int,
@@ -278,7 +277,7 @@ def _fetch_frontmatter_url(raw_url: str, frontmatter_field: str) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def _upsert(conn: sqlite3.Connection, board: tuple[str, str], source_name: str, url: str) -> tuple[str, str, str, str]:
+def _upsert(conn: DBConnection, board: tuple[str, str], source_name: str, url: str) -> tuple[str, str, str, str]:
     platform, slug = board
     upsert_known_board(
         conn,

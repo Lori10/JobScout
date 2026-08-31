@@ -21,10 +21,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
-import sqlite3
 from datetime import datetime, timezone
 
-from jobscout.db import KnownBoard, get_known_boards, record_board_poll
+from jobscout.db import DBConnection, KnownBoard, get_known_boards, record_board_poll
 from jobscout.fetchers.ats_boards import fetch_board_postings, posting_to_job
 from jobscout.models import Job
 
@@ -39,7 +38,7 @@ DEFAULT_MAX_WORKERS = 15
 REGISTRY_SOURCE = "ats_board_registry"
 
 
-def poll_known_boards(conn: sqlite3.Connection, *, max_workers: int = DEFAULT_MAX_WORKERS) -> list[Job]:
+def poll_known_boards(conn: DBConnection, *, max_workers: int = DEFAULT_MAX_WORKERS) -> list[Job]:
     """Fetches every enabled known_boards row concurrently via
     fetch_board_postings + posting_to_job, records last_polled_at/
     last_poll_result_count for each, and returns the flattened Job list.
