@@ -233,10 +233,26 @@ container).
 docker compose up --build
 ```
 
-Open `http://localhost:8000`. Jobs persist in `./data/jobscout.db` on
-the host across restarts. The non-root container user (uid 1000) needs
-write access to `./data` and `./report.html` on the host — if
-`docker compose up` fails with a permission error on first run:
+Open `http://localhost:8000`. This compose stack runs three services:
+`jobscout` (the app), `postgres` (16-alpine, storing jobs in the
+`jobscout-postgres-data` named Docker volume — *not* `./data/jobscout.db`),
+and `adminer` (a zero-config DB browser UI). Jobs persist in that named
+volume across restarts; run `docker compose down -v` to wipe it and start
+fresh.
+
+Browse the database at `http://localhost:8080` — System: `PostgreSQL`,
+Server: `postgres`, Username: `jobscout`, Password: `jobscout`, Database:
+`jobscout`. These are throwaway local-only credentials: the `postgres`
+service has no `ports:` mapping to the host, so it's unreachable outside
+the compose network regardless of what the password is.
+
+Plain non-Docker dev (`.venv/bin/python -m jobscout serve`, see above)
+still defaults to sqlite at `./data/jobscout.db` — nothing outside
+`docker-compose.yml` sets `JOBSCOUT_DB_PATH`.
+
+The non-root container user (uid 1000) still needs write access to
+`./report.html` on the host — if `docker compose up` fails with a
+permission error on first run:
 
 ```bash
 chown -R 1000:1000 data/ report.html
@@ -609,13 +625,27 @@ scripts/dev.sh  Runs the dashboard backend + frontend together for local dev
 .venv/bin/python -m pytest -q
 ```
 
+To also exercise the Postgres backend locally (CI always does):
+
+```bash
+docker run --rm -d --name jobscout-test-pg -p 5432:5432 \
+  -e POSTGRES_USER=jobscout -e POSTGRES_PASSWORD=jobscout -e POSTGRES_DB=jobscout_test \
+  postgres:16-alpine
+TEST_DATABASE_URL=postgresql://jobscout:jobscout@localhost:5432/jobscout_test \
+  .venv/bin/python -m pytest -q
+docker stop jobscout-test-pg
+```
+
 Covers `filters.py` (every eligibility edge case called out in the spec:
 US-only, EU-only vs. needs_review, worldwide, EST overlap vs. PST-required,
 hybrid-with/without-remote-mention, German posts not excluded for language,
 punctuation/case tolerance), `ranker.py` (score bounds, LLM/RAG keywords
 outscoring generic Python, title/positive/recency bonuses, all four
 `contract_type_guess` branches), `dedupe.py`, `db.py` (including the
-`seniority_fit` column migration for pre-Phase-3 databases), `htmlutils.py`,
+`seniority_fit` column migration for pre-Phase-3 sqlite databases; when
+`TEST_DATABASE_URL` is set — e.g. in CI — the same test bodies also re-run
+against a real Postgres backend to exercise the psycopg2 code path),
+`htmlutils.py`,
 `config.py` (`ai` block parsing, `ranking_mode` validation), the `gemini`/
 `anthropic` providers' error normalization in `jobscout/llm/` (mocked SDK
 clients, no real network calls), `ai_ranker.py` (structured-output mapping,
