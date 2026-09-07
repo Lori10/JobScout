@@ -17,7 +17,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Compute lowercase image name
         id: image
         run: echo "name=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
@@ -45,6 +45,6 @@ jobs:
     env:
       FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only --image ${{ needs.publish.outputs.image }}:${{ github.sha }}
