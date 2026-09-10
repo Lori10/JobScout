@@ -741,3 +741,355 @@ def test_workable_posting_to_job_source_param_threaded(monkeypatch):
         source="ats_board_registry",
     )
     assert job.source == "ats_board_registry"
+
+
+# ---- recruitee ----
+
+
+def make_recruitee_offer(**overrides) -> dict:
+    """Shape verified against Recruitee's official Careers Site API docs
+    (docs.recruitee.com/reference/offers)."""
+    defaults = {
+        "id": 98765,
+        "title": "Senior LLM Engineer",
+        "description": "<p>We build <b>LLM</b> products.</p>",
+        "requirements": "<ul><li>5+ years Python</li></ul>",
+        "department": "Engineering",
+        "tags": ["remote-friendly"],
+        "locations": [{"name": "Remote - Europe"}],
+        "remote": True,
+        "hybrid": False,
+        "on_site": False,
+        "employment_type_code": "contractor",
+        # Space-separated, non-ISO8601 — the format actually observed live
+        # (verified against a real board), not what Recruitee's OpenAPI docs
+        # imply.
+        "published_at": "2026-08-01 10:00:00 UTC",
+        "created_at": "2026-07-30 10:00:00 UTC",
+        "careers_url": "https://acme.recruitee.com/o/senior-llm-engineer",
+        "careers_apply_url": "https://acme.recruitee.com/o/senior-llm-engineer/c/new",
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def test_detect_board_matches_recruitee_board_root():
+    assert detect_board("https://acme.recruitee.com") == ("recruitee", "acme")
+    assert detect_board("https://acme.recruitee.com/") == ("recruitee", "acme")
+
+
+def test_detect_board_does_not_match_recruitee_specific_job_link():
+    assert detect_board("https://acme.recruitee.com/o/senior-llm-engineer") is None
+
+
+def test_resolve_board_skips_network_call_for_specific_recruitee_link(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("requests.get should not have been called")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert resolve_board("https://acme.recruitee.com/o/senior-llm-engineer") is None
+
+
+def test_fetch_recruitee_postings_reads_offers_and_caps_count(monkeypatch):
+    payload = {"offers": [make_recruitee_offer(id=i) for i in range(50)]}
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse(payload))
+    result = fetch_board_postings("recruitee", "acme")
+    assert len(result) == 40
+
+
+def test_fetch_recruitee_postings_returns_empty_for_missing_offers_key(monkeypatch):
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeResponse({}))
+    assert fetch_board_postings("recruitee", "acme") == []
+
+
+def test_fetch_recruitee_postings_returns_empty_on_request_failure(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert fetch_board_postings("recruitee", "acme") == []
+
+
+def test_recruitee_posting_to_job_maps_fields():
+    job = posting_to_job("recruitee", make_recruitee_offer(), company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job is not None
+    assert job.title == "Senior LLM Engineer"
+    assert job.company == "Acme"
+    assert job.url == "https://acme.recruitee.com/o/senior-llm-engineer/c/new"
+    assert job.tags == ["Engineering", "remote-friendly"]
+    assert job.source_id == "1:recruitee:98765"
+    assert "5+ years Python" in job.description
+    assert "<li>" not in job.description
+    assert job.contract_type_guess == ContractTypeGuess.FREELANCE
+
+
+def test_recruitee_posting_to_job_falls_back_to_careers_url_without_apply_url():
+    job = posting_to_job(
+        "recruitee",
+        make_recruitee_offer(careers_apply_url=None),
+        company="Acme",
+        comment_id=1,
+        fallback_posted_date=None,
+    )
+    assert job.url == "https://acme.recruitee.com/o/senior-llm-engineer"
+
+
+def test_recruitee_posting_to_job_location_reflects_remote_flag():
+    job = posting_to_job("recruitee", make_recruitee_offer(), company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job.location_text == "Remote - Europe, Remote"
+
+    onsite = posting_to_job(
+        "recruitee",
+        make_recruitee_offer(remote=False, hybrid=False, on_site=True),
+        company="Acme",
+        comment_id=1,
+        fallback_posted_date=None,
+    )
+    assert onsite.location_text.endswith("On-site")
+
+
+def test_recruitee_posting_to_job_returns_none_without_url_or_title():
+    assert (
+        posting_to_job(
+            "recruitee",
+            make_recruitee_offer(careers_url=None, careers_apply_url=None),
+            company="Acme",
+            comment_id=1,
+            fallback_posted_date=None,
+        )
+        is None
+    )
+    assert (
+        posting_to_job(
+            "recruitee", make_recruitee_offer(title=None), company="Acme", comment_id=1, fallback_posted_date=None
+        )
+        is None
+    )
+
+
+def test_recruitee_posting_to_job_parses_space_separated_utc_timestamp():
+    # Real live shape ("2026-08-01 10:00:00 UTC"), not ISO8601 — this
+    # silently dropped every Recruitee posted_date to the fallback until
+    # _parse_recruitee_datetime normalized it.
+    job = posting_to_job("recruitee", make_recruitee_offer(), company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job.posted_date is not None
+    assert job.posted_date.year == 2026 and job.posted_date.month == 8 and job.posted_date.day == 1
+
+
+def test_recruitee_posting_to_job_falls_back_when_dates_missing():
+    from datetime import datetime, timezone
+
+    fallback = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    job = posting_to_job(
+        "recruitee",
+        make_recruitee_offer(published_at=None, created_at=None),
+        company="Acme",
+        comment_id=1,
+        fallback_posted_date=fallback,
+    )
+    assert job.posted_date == fallback
+
+
+def test_recruitee_posting_to_job_source_defaults_to_hn_whoishiring():
+    job = posting_to_job("recruitee", make_recruitee_offer(), company="Acme", comment_id=1, fallback_posted_date=None)
+    assert job.source == "hn_whoishiring"
+
+
+def test_recruitee_posting_to_job_source_param_threaded():
+    job = posting_to_job(
+        "recruitee",
+        make_recruitee_offer(),
+        company="Acme",
+        comment_id=1,
+        fallback_posted_date=None,
+        source="ats_board_registry",
+    )
+    assert job.source == "ats_board_registry"
+
+
+# ---- personio ----
+
+
+class FakeXMLResponse:
+    def __init__(self, xml_bytes, status_ok=True):
+        self.content = xml_bytes
+        self._status_ok = status_ok
+
+    def raise_for_status(self):
+        if not self._status_ok:
+            raise RuntimeError("boom")
+
+
+_PERSONIO_POSITION_XML = """
+<position>
+    <id>{id}</id>
+    <office>{office}</office>
+    <department>{department}</department>
+    <recruitingCategory>{recruiting_category}</recruitingCategory>
+    <name>{name}</name>
+    <jobDescriptions>
+        <jobDescription>
+            <name>Description</name>
+            <value><![CDATA[{description}]]></value>
+        </jobDescription>
+        <jobDescription>
+            <name>Requirements</name>
+            <value><![CDATA[{requirements}]]></value>
+        </jobDescription>
+    </jobDescriptions>
+    <employmentType>{employment_type}</employmentType>
+    <occupationCategory>{occupation_category}</occupationCategory>
+    <createdAt>{created_at}</createdAt>
+</position>
+"""
+
+
+def make_personio_position_xml(**overrides) -> str:
+    """Shape verified against Personio's official XML feed docs
+    (developer.personio.de/docs/retrieving-open-job-positions)."""
+    defaults = {
+        "id": 4103,
+        "office": "Berlin",
+        "department": "Engineering",
+        "recruiting_category": "Tech",
+        "name": "Senior LLM Engineer",
+        "description": "<p>We build <b>LLM</b> products.</p>",
+        "requirements": "5+ years Python",
+        "employment_type": "contract",
+        "occupation_category": "engineering",
+        "created_at": "2026-07-30T10:00:00+0200",
+    }
+    defaults.update(overrides)
+    return _PERSONIO_POSITION_XML.format(**defaults)
+
+
+def make_personio_feed(*position_blocks: str) -> bytes:
+    body = "\n".join(position_blocks) if position_blocks else make_personio_position_xml()
+    return f"<?xml version='1.0' encoding='UTF-8'?><workzag-jobs>{body}</workzag-jobs>".encode()
+
+
+def _personio_raw_posting(**overrides) -> dict:
+    """The flattened-dict shape _fetch_personio produces from one <position>
+    Element — what posting_to_job actually receives, never a raw Element."""
+    defaults = {
+        "id": "4103",
+        "name": "Senior LLM Engineer",
+        "office": "Berlin",
+        "department": "Engineering",
+        "employmentType": "contract",
+        "recruitingCategory": "Tech",
+        "occupationCategory": "engineering",
+        "jobDescriptions": [
+            {"name": "Description", "value": "<p>We build <b>LLM</b> products.</p>"},
+            {"name": "Requirements", "value": "5+ years Python"},
+        ],
+        "createdAt": "2026-07-30T10:00:00+0200",
+        "_personio_host": "acme.jobs.personio.de",
+    }
+    defaults.update(overrides)
+    return defaults
+
+
+def test_detect_board_matches_personio_board_root():
+    assert detect_board("https://acme.jobs.personio.de") == ("personio", "acme.de")
+    assert detect_board("https://acme.jobs.personio.com/") == ("personio", "acme.com")
+
+
+def test_detect_board_does_not_match_personio_specific_job_link():
+    assert detect_board("https://acme.jobs.personio.de/job/4103") is None
+
+
+def test_resolve_board_skips_network_call_for_specific_personio_link(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("requests.get should not have been called")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert resolve_board("https://acme.jobs.personio.de/job/4103") is None
+
+
+def test_fetch_personio_postings_reads_positions_and_caps_count(monkeypatch):
+    feed = make_personio_feed(*(make_personio_position_xml(id=i) for i in range(50)))
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeXMLResponse(feed))
+    result = fetch_board_postings("personio", "acme.de")
+    assert len(result) == 40
+    assert result[0]["_personio_host"] == "acme.jobs.personio.de"
+
+
+def test_fetch_personio_postings_returns_empty_on_request_failure(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert fetch_board_postings("personio", "acme.de") == []
+
+
+def test_fetch_personio_postings_handles_empty_board(monkeypatch):
+    empty_feed = b"<?xml version='1.0' encoding='UTF-8'?><workzag-jobs></workzag-jobs>"
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", lambda *a, **k: FakeXMLResponse(empty_feed))
+    assert fetch_board_postings("personio", "acme.de") == []
+
+
+def test_fetch_personio_postings_returns_empty_for_malformed_board_slug(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("requests.get should not have been called")
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", boom)
+    assert fetch_board_postings("personio", "acme") == []
+
+
+def test_fetch_personio_postings_uses_encoded_tld(monkeypatch):
+    captured = {}
+
+    def fake_get(url, params=None, timeout=None):
+        captured["url"] = url
+        return FakeXMLResponse(make_personio_feed())
+
+    monkeypatch.setattr("jobscout.fetchers.ats_boards.requests.get", fake_get)
+    fetch_board_postings("personio", "acme.com")
+    assert captured["url"] == "https://acme.jobs.personio.com/xml"
+
+
+def test_personio_posting_to_job_maps_fields():
+    job = posting_to_job(
+        "personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None
+    )
+    assert job is not None
+    assert job.title == "Senior LLM Engineer"
+    assert job.company == "Acme"
+    assert job.url == "https://acme.jobs.personio.de/job/4103"
+    assert job.location_text == "Berlin"
+    assert job.tags == ["Engineering", "Tech", "engineering"]
+    assert job.source_id == "1:personio:4103"
+    assert "5+ years Python" in job.description
+    assert "<b>" not in job.description
+    assert job.contract_type_guess == ContractTypeGuess.FREELANCE
+
+
+def test_personio_posting_to_job_returns_none_without_host_id_or_title():
+    missing_host = _personio_raw_posting(_personio_host=None)
+    assert posting_to_job("personio", missing_host, company="Acme", comment_id=1, fallback_posted_date=None) is None
+
+    missing_id = _personio_raw_posting(id=None)
+    assert posting_to_job("personio", missing_id, company="Acme", comment_id=1, fallback_posted_date=None) is None
+
+    missing_title = _personio_raw_posting(name=None)
+    assert posting_to_job("personio", missing_title, company="Acme", comment_id=1, fallback_posted_date=None) is None
+
+
+def test_personio_posting_to_job_source_defaults_to_hn_whoishiring():
+    job = posting_to_job(
+        "personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None
+    )
+    assert job.source == "hn_whoishiring"
+
+
+def test_personio_posting_to_job_source_param_threaded():
+    job = posting_to_job(
+        "personio",
+        _personio_raw_posting(),
+        company="Acme",
+        comment_id=1,
+        fallback_posted_date=None,
+        source="ats_board_registry",
+    )
+    assert job.source == "ats_board_registry"
