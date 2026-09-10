@@ -1050,9 +1050,7 @@ def test_fetch_personio_postings_uses_encoded_tld(monkeypatch):
 
 
 def test_personio_posting_to_job_maps_fields():
-    job = posting_to_job(
-        "personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None
-    )
+    job = posting_to_job("personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None)
     assert job is not None
     assert job.title == "Senior LLM Engineer"
     assert job.company == "Acme"
@@ -1077,9 +1075,7 @@ def test_personio_posting_to_job_returns_none_without_host_id_or_title():
 
 
 def test_personio_posting_to_job_source_defaults_to_hn_whoishiring():
-    job = posting_to_job(
-        "personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None
-    )
+    job = posting_to_job("personio", _personio_raw_posting(), company="Acme", comment_id=1, fallback_posted_date=None)
     assert job.source == "hn_whoishiring"
 
 
