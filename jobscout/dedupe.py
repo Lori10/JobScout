@@ -58,7 +58,7 @@ _UNIQUE_ROLE_ID_SOURCES = frozenset({"himalayas", "jobicy", "arbeitnow", "wework
 # hn_whoishiring._bulleted_role_link_jobs stamps f"{comment_id}:bullet:{index}"
 # for the prose-listed-roles-with-own-links case, which has the identical
 # "several distinct roles from one company, don't fuzzy-merge them" need.
-_ATS_EXPANSION_SOURCE_ID_RE = re.compile(r":(?:ashby|greenhouse|lever|workable|bullet):")
+_ATS_EXPANSION_SOURCE_ID_RE = re.compile(r":(?:ashby|greenhouse|lever|workable|recruitee|personio|bullet):")
 
 
 def _has_source_assigned_role_id(job: Job) -> bool:

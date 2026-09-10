@@ -36,6 +36,22 @@ best-effort (never raises; a failure just means no snippet), and
 _workable_posting_to_job prepends the ORIGINAL HN comment's full text ahead
 of it, so relevance/skill-match scoring for an expanded Workable role isn't
 solely dependent on a thin, truncated blurb.
+
+Recruitee and Personio are the fifth and sixth platforms. Recruitee's
+{client}.recruitee.com/api/offers is JSON, same shape as the others.
+Personio is the one platform whose board_slug is NOT a bare single token:
+its public XML feed lives at either {company}.jobs.personio.de/xml or
+...personio.com/xml (which TLD is live isn't guessable from the URL alone),
+so detect_board encodes both captured groups into board_slug as
+"{company}.{tld}" — nothing outside this module parses that string's
+internal structure, so the two-tuple contract (platform, board_slug) stays
+opaque everywhere else (known_boards storage, hn_whoishiring.py,
+board_registry.py). _fetch_personio also flattens each raw <position>
+Element into a plain dict (mirroring the JSON platforms' shape) before
+posting_to_job ever sees it, and stashes the resolved host on it as a
+synthetic _personio_host key (same trick as Workable's
+_board_company_name) so _personio_posting_to_job can build each job's
+/job/{id} URL without re-deriving company/tld from board_slug again.
 """
 
 from __future__ import annotations
@@ -43,6 +59,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+import xml.etree.ElementTree as ET
 
 import requests
 
@@ -82,13 +99,18 @@ _LEVER_BOARD_ROOT_RE = re.compile(r"^https?://jobs\.lever\.co/([^/?#]+)/?$", re.
 # a company slug.
 _WORKABLE_PATH_BOARD_ROOT_RE = re.compile(r"^https?://apply\.workable\.com/([^/?#]+)/?$", re.IGNORECASE)
 _WORKABLE_SUBDOMAIN_BOARD_ROOT_RE = re.compile(r"^https?://(?!apply\.|www\.)([^./]+)\.workable\.com/?$", re.IGNORECASE)
+_RECRUITEE_BOARD_ROOT_RE = re.compile(r"^https?://([^./]+)\.recruitee\.com/?$", re.IGNORECASE)
+# Two live TLD variants exist for the same account (see module docstring) —
+# both captured so board_slug can encode which one this URL actually used.
+_PERSONIO_BOARD_ROOT_RE = re.compile(r"^https?://([^./]+)\.jobs\.personio\.(de|com)/?$", re.IGNORECASE)
 # Broader than the ones above (no anchoring to "nothing after the board
 # slug") — matches ANY URL already hosted on a known ATS, including an
 # already-specific job link. Used only to skip resolve_board's redirect
 # request when it plainly can't help (a URL already on one of these hosts
 # that isn't a board root is already specific, not a redirect-hiding bundle).
 _KNOWN_ATS_HOST_RE = re.compile(
-    r"^https?://(?:jobs\.ashbyhq\.com|(?:boards|job-boards)\.greenhouse\.io|jobs\.lever\.co|[^./]+\.workable\.com)/",
+    r"^https?://(?:jobs\.ashbyhq\.com|(?:boards|job-boards)\.greenhouse\.io|jobs\.lever\.co|"
+    r"[^./]+\.workable\.com|[^./]+\.recruitee\.com|[^./]+\.jobs\.personio\.(?:de|com))/",
     re.IGNORECASE,
 )
 
@@ -113,6 +135,12 @@ def detect_board(url: str | None) -> tuple[str, str] | None:
     match = _WORKABLE_SUBDOMAIN_BOARD_ROOT_RE.match(url)
     if match:
         return "workable", match.group(1)
+    match = _RECRUITEE_BOARD_ROOT_RE.match(url)
+    if match:
+        return "recruitee", match.group(1)
+    match = _PERSONIO_BOARD_ROOT_RE.match(url)
+    if match:
+        return "personio", f"{match.group(1)}.{match.group(2)}"
     return None
 
 
@@ -180,6 +208,10 @@ def fetch_board_postings(platform: str, board_slug: str) -> list[dict]:
         return _fetch_lever(board_slug)
     if platform == "workable":
         return _fetch_workable(board_slug)
+    if platform == "recruitee":
+        return _fetch_recruitee(board_slug)
+    if platform == "personio":
+        return _fetch_personio(board_slug)
     return []
 
 
@@ -258,6 +290,60 @@ def _fetch_workable(board_slug: str) -> list[dict]:
     return postings
 
 
+def _fetch_recruitee(board_slug: str) -> list[dict]:
+    try:
+        response = requests.get(f"https://{board_slug}.recruitee.com/api/offers", timeout=TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        logger.warning("ats_boards: failed to fetch recruitee board %r", board_slug, exc_info=True)
+        return []
+    return (data.get("offers") or [])[:_MAX_ROLES_PER_BOARD]
+
+
+def _fetch_personio(board_slug: str) -> list[dict]:
+    """board_slug is "{company}.{tld}" (see detect_board) since Personio's
+    two live TLD variants make the host non-derivable from company alone.
+    Each raw <position> Element is flattened into a plain dict — the same
+    uniform shape every other platform's posting_to_job already expects —
+    with the resolved host stashed as a synthetic _personio_host key so
+    _personio_posting_to_job can build a job URL without re-deriving it."""
+    company, _, tld = board_slug.partition(".")
+    if not company or not tld:
+        logger.warning("ats_boards: malformed personio board_slug %r", board_slug)
+        return []
+    host = f"{company}.jobs.personio.{tld}"
+    try:
+        response = requests.get(f"https://{host}/xml", params={"language": "en"}, timeout=TIMEOUT)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+    except Exception:
+        logger.warning("ats_boards: failed to fetch personio board %r", board_slug, exc_info=True)
+        return []
+
+    postings = []
+    for position in root.findall(".//position")[:_MAX_ROLES_PER_BOARD]:
+        descriptions = [
+            {"name": (d.findtext("name") or "").strip(), "value": d.findtext("value") or ""}
+            for d in position.findall("./jobDescriptions/jobDescription")
+        ]
+        postings.append(
+            {
+                "id": position.findtext("id"),
+                "name": position.findtext("name"),
+                "office": position.findtext("office"),
+                "department": position.findtext("department"),
+                "employmentType": position.findtext("employmentType"),
+                "recruitingCategory": position.findtext("recruitingCategory"),
+                "occupationCategory": position.findtext("occupationCategory"),
+                "jobDescriptions": descriptions,
+                "createdAt": position.findtext("createdAt"),
+                "_personio_host": host,
+            }
+        )
+    return postings
+
+
 _META_DESCRIPTION_RE = re.compile(r'<meta\s+name=["\']description["\']\s+content=["\']([^"\']*)["\']', re.IGNORECASE)
 
 
@@ -304,6 +390,10 @@ def posting_to_job(
         return _lever_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
     if platform == "workable":
         return _workable_posting_to_job(raw, company, comment_id, fallback_posted_date, original_description, source)
+    if platform == "recruitee":
+        return _recruitee_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
+    if platform == "personio":
+        return _personio_posting_to_job(raw, company, comment_id, fallback_posted_date, source)
     return None
 
 
@@ -451,4 +541,113 @@ def _workable_posting_to_job(
         application_channel=ApplicationChannel.URL,
         source_id=f"{comment_id}:workable:{raw.get('shortcode')}",
         contract_type_guess=contract_type_from_label(raw.get("employment_type")),
+    )
+
+
+def _parse_recruitee_datetime(value: str | None):
+    """Recruitee's OpenAPI docs type published_at/created_at as a bare
+    string with no format example. The real value observed live is
+    "2026-07-31 22:26:40 UTC" — a space-separated, non-ISO8601 shape that
+    parse_iso_datetime can't read, which silently dropped every Recruitee
+    job's posted_date to the fallback. Normalized to ISO8601 here before
+    handing off, so a future ISO-shaped value (with "T"/"Z") still works
+    unchanged since it never hits the " UTC" branch below."""
+    if not value:
+        return None
+    normalized = value.strip()
+    if normalized.endswith(" UTC"):
+        normalized = normalized[: -len(" UTC")].strip().replace(" ", "T") + "+00:00"
+    return parse_iso_datetime(normalized, assume_utc=True)
+
+
+def _recruitee_posting_to_job(
+    raw: dict, company: str, comment_id, fallback_posted_date, source: str = "hn_whoishiring"
+) -> Job | None:
+    url = raw.get("careers_apply_url") or raw.get("careers_url")
+    title = raw.get("title")
+    if not url or not title:
+        return None
+
+    # Recruitee splits prose across description/requirements like Lever does
+    # across descriptionPlain/lists/additionalPlain — neither field alone is
+    # reliably the full picture, so both are kept.
+    sections = [strip_html(raw.get("description") or ""), strip_html(raw.get("requirements") or "")]
+    description = "\n\n".join(section for section in sections if section and section.strip())
+
+    location_names = [
+        loc.get("name") for loc in (raw.get("locations") or []) if isinstance(loc, dict) and loc.get("name")
+    ]
+    # remote/hybrid/on_site are Recruitee's own answer to the question
+    # Stage 1 has to ask, same vocabulary config.yaml already matches (see
+    # Lever's workplaceType handling above).
+    if raw.get("remote"):
+        location_names.append("Remote")
+    elif raw.get("hybrid"):
+        location_names.append("Hybrid")
+    elif raw.get("on_site"):
+        location_names.append("On-site")
+    location_text = ", ".join(location_names) or None
+
+    tags = [t for t in ([raw.get("department")] + list(raw.get("tags") or [])) if t]
+
+    posted_date = (
+        _parse_recruitee_datetime(raw.get("published_at"))
+        or _parse_recruitee_datetime(raw.get("created_at"))
+        or fallback_posted_date
+    )
+
+    return Job(
+        title=title.strip(),
+        company=company,
+        description=description,
+        url=url,
+        source=source,
+        posted_date=posted_date,
+        tags=tags,
+        location_text=location_text,
+        application_channel=ApplicationChannel.URL,
+        source_id=f"{comment_id}:recruitee:{raw.get('id')}",
+        contract_type_guess=contract_type_from_label(raw.get("employment_type_code")),
+    )
+
+
+def _personio_posting_to_job(
+    raw: dict, company: str, comment_id, fallback_posted_date, source: str = "hn_whoishiring"
+) -> Job | None:
+    host = raw.get("_personio_host")
+    posting_id = raw.get("id")
+    title = raw.get("name")
+    if not host or not posting_id or not title:
+        return None
+    # /job/{id} is inferred from Personio's own career-site convention, not
+    # documented in their public XML feed docs — see the ats-boards test
+    # suite and this module's docstring for the "verify against a live
+    # board" flag on this specific field.
+    url = f"https://{host}/job/{posting_id}"
+
+    # jobDescriptions holds several named prose sections (e.g. German
+    # "Beschreibung"/"Dein Profil") — same "several fields, none alone
+    # complete" shape as Lever's `lists`, joined the same way.
+    sections = []
+    for entry in raw.get("jobDescriptions") or []:
+        heading = (entry.get("name") or "").strip()
+        body = strip_html(entry.get("value") or "")
+        if body:
+            sections.append(f"{heading}\n{body}" if heading else body)
+    description = "\n\n".join(sections)
+
+    tags = [t for t in (raw.get("department"), raw.get("recruitingCategory"), raw.get("occupationCategory")) if t]
+
+    return Job(
+        title=title.strip(),
+        company=company,
+        description=description,
+        url=url,
+        source=source,
+        posted_date=parse_iso_datetime(raw.get("createdAt"), assume_utc=True) or fallback_posted_date,
+        tags=tags,
+        location_text=raw.get("office") or None,
+        application_channel=ApplicationChannel.URL,
+        source_id=f"{comment_id}:personio:{posting_id}",
+        contract_type_guess=contract_type_from_label(raw.get("employmentType")),
     )

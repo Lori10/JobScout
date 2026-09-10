@@ -103,9 +103,32 @@ yet. Not usable as a fetcher until that's resolved and the project has more
 of a track record; worth checking again in a few months.
 
 Phase 4.5: done. A persistent **ATS board registry** (see below) that
-re-polls every Ashby/Greenhouse/Lever/Workable board ever discovered —
-via HN comments or a public GitHub company list — on every future run,
-instead of discovery being thrown away after the run that found it.
+re-polls every Ashby/Greenhouse/Lever/Workable/Recruitee/Personio board
+ever discovered — via HN comments or a public GitHub company list — on
+every future run, instead of discovery being thrown away after the run
+that found it.
+
+Phase 4.6: done. Two more ATS board-expansion platforms, **Recruitee** and
+**Personio**, added to `jobscout/fetchers/ats_boards.py` alongside
+Ashby/Greenhouse/Lever/Workable — prompted by asking whether recruitment/
+staffing agencies themselves would be a better source to add. They
+weren't: generalist staffing agencies (Robert Half, Randstad, CyberCoders)
+have no public job API, only scraping; freelance marketplaces (Toptal,
+Turing, Arc.dev, Crossover) are candidate-vetting platforms with no
+published-requisition feed to poll at all; and `jobdataapi.com`, a paid
+aggregator with an explicit agency filter, was the one real option for
+genuine agency-posted data but has no free tier ($345-495/mo). Recruitee
+and Personio are ATS platforms, not agencies — same free, public,
+structured shape as the existing four, wired into the same board-
+expansion/registry mechanism with no other call sites changed. Live
+verification against real boards (`hygraph`/`onramper` on Recruitee,
+`mercanis` on Personio) caught one real bug before it shipped: Recruitee's
+`published_at`/`created_at` come back as `"2026-07-31 22:26:40 UTC"`, not
+ISO8601 — `parse_iso_datetime` silently returned `None` for every real
+value, dropping `posted_date` to the fallback on every single job.
+`_parse_recruitee_datetime` normalizes the space-separated shape before
+handing off (see Known limitations below for both platforms' remaining
+quirks).
 
 ## Install
 
@@ -482,6 +505,24 @@ every run for no new information isn't worth the cost.
   `lists` would discard exactly the skill text the ranker needs. An empty
   board is a valid response (`api.lever.co/v0/postings/lever` returns
   `[]`) and falls back to the original single-Job behavior.
+- **Recruitee** (bundled-comment expansion) — `published_at`/`created_at`
+  come back as `"YYYY-MM-DD HH:MM:SS UTC"` (space-separated, not ISO8601)
+  despite the OpenAPI docs typing them as a bare string with no format
+  shown — confirmed against a live board. `_parse_recruitee_datetime`
+  normalizes this before parsing so `posted_date` isn't silently dropped to
+  the fallback for every job. Some companies front their Recruitee board
+  behind a custom domain (e.g. `jobs.hygraph.com` rather than
+  `hygraph.recruitee.com`, seen live) — an HN comment linking only the
+  custom domain isn't detected as a Recruitee board root unless it also
+  links to (or redirects through) the `*.recruitee.com` host
+  `detect_board()`/`resolve_board()` look for.
+- **Personio** — the public XML feed lives at either `*.jobs.personio.de`
+  or `*.jobs.personio.com`, and which TLD is live for a given company isn't
+  guessable from the company name alone, so `board_slug` encodes both as
+  `"{company}.{tld}"` rather than a bare token like every other platform
+  here. The individual job-detail URL (`/job/{id}`) isn't documented in
+  Personio's own XML feed docs — it's inferred from career-site convention
+  and was confirmed live against a real board (`mercanis`) before shipping.
 - **ATS board registry, Workable specifically** — a Workable role found via
   the registry (`jobscout/fetchers/board_registry.py`) has a weaker
   description than the same role found via an HN comment, since

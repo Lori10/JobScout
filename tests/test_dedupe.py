@@ -188,6 +188,47 @@ def test_lever_expansion_roles_not_merged():
     assert len(dedupe(jobs)) == 2
 
 
+def test_recruitee_expansion_roles_not_merged():
+    # Same guarantee Ashby/Greenhouse/Lever already had, extended to Recruitee.
+    jobs = [
+        make_job(
+            "Account Executive",
+            "Acme",
+            "https://acme.recruitee.com/o/aaa",
+            "hn_whoishiring",
+            source_id="42:recruitee:aaa",
+        ),
+        make_job(
+            "Account Executive - NYC",
+            "Acme",
+            "https://acme.recruitee.com/o/bbb",
+            "hn_whoishiring",
+            source_id="42:recruitee:bbb",
+        ),
+    ]
+    assert len(dedupe(jobs)) == 2
+
+
+def test_personio_expansion_roles_not_merged():
+    jobs = [
+        make_job(
+            "Account Executive",
+            "Acme",
+            "https://acme.jobs.personio.de/job/1",
+            "hn_whoishiring",
+            source_id="42:personio:1",
+        ),
+        make_job(
+            "Account Executive - NYC",
+            "Acme",
+            "https://acme.jobs.personio.de/job/2",
+            "hn_whoishiring",
+            source_id="42:personio:2",
+        ),
+    ]
+    assert len(dedupe(jobs)) == 2
+
+
 def test_ordinary_sources_still_fuzzy_merge_unchanged():
     # Phase 1 behavior must be untouched: remoteok/remotive are deliberately
     # not in _UNIQUE_ROLE_ID_SOURCES.
