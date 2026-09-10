@@ -574,7 +574,9 @@ def _recruitee_posting_to_job(
     sections = [strip_html(raw.get("description") or ""), strip_html(raw.get("requirements") or "")]
     description = "\n\n".join(section for section in sections if section and section.strip())
 
-    location_names = [loc.get("name") for loc in (raw.get("locations") or []) if isinstance(loc, dict) and loc.get("name")]
+    location_names = [
+        loc.get("name") for loc in (raw.get("locations") or []) if isinstance(loc, dict) and loc.get("name")
+    ]
     # remote/hybrid/on_site are Recruitee's own answer to the question
     # Stage 1 has to ask, same vocabulary config.yaml already matches (see
     # Lever's workplaceType handling above).
